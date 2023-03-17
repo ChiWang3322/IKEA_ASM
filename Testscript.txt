@@ -1,8 +1,0 @@
-python3 train.py --dataset_path /home/chiwang/Python/IKEA_Benchmark/IKEA_ASM_Dataset/dataset/ANU_ikea_dataset/ --pose_relative_path "predictions/pose2d/openpose" --batch_size 32 --n_epochs 500 --frames_per_clip 64 --arch ST_GCN --gpu_idx 0
-
-
-python3 train.py --dataset_path /home/chiwang/Python/IKEA_Benchmark/IKEA_ASM_Dataset/dataset/ANU_ikea_dataset/ --pose_relative_path "predictions/pose2d/openpose" --batch_size 32 --n_epochs 500 --frames_per_clip 64 --arch AGCN --gpu_idx 0 --logdir "./log/AGCN"
-
-python3 test.py --dataset_path /home/chiwang/Python/IKEA_Benchmark/IKEA_ASM_Dataset/dataset/ANU_ikea_dataset/ --pose_relative_path "predictions/pose2d/openpose" --batch_size 32 --frames_per_clip 64 --arch ST_GCN --model best_classifier.pth --model_path ./log/debug --dataset_path /home/chiwang/Python/IKEA_Benchmark/IKEA_ASM_Dataset/dataset/ANU_ikea_dataset/
-
-python3 test.py --dataset_path /home/chiwang/Python/IKEA_Benchmark/IKEA_ASM_Dataset/dataset/ANU_ikea_dataset/ --pose_relative_path "predictions/pose2d/openpose" --batch_size 32 --frames_per_clip 64 --arch AGCN --model best_classifier.pth --model_path ./log/AGCN --dataset_path /home/chiwang/Python/IKEA_Benchmark/IKEA_ASM_Dataset/dataset/ANU_ikea_dataset/
