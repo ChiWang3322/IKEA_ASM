@@ -81,18 +81,13 @@ class Model(nn.Module):
         for gcn, importance in zip(self.st_gcn_networks, self.edge_importance):
             x, _ = gcn(x, self.A * importance)
         # (64, 256, 1, 1)
-        # print('Before average pooling:', x.size())
+        _, c, t, v = x.size()
+        feature = x.view(N, M, c, t, v).permute(0, 2, 3, 4, 1)
         x = F.avg_pool2d(x, x.size()[2:])   # size of pooling layer -> (100, 18)
-        # print('After average pooling:', x.size())
-        # (64, 1, 256, 1, 1)
-        # x = x.view(N, M, -1, 1, 1)
-        # print('Before fcn:', x.size())
         x = self.fcn(x)
-        # print('After fcn:', x.size())
-        # (64, num_class)
         x = x.view(x.size(0), -1)
         
-        return x
+        return x, feature
     def extract_feature(self, x):
 
         # data normalization

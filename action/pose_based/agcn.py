@@ -52,43 +52,7 @@ class unit_tcn(nn.Module):
     def forward(self, x):
         x = self.bn(self.conv(x))
         return x
-# class unit_tcn(nn.Module):
-#     def __init__(self, in_channels, out_channels, kernel_size=[3, 7, 9, 15], stride=1):
-#         super(unit_tcn, self).__init__()
-#         if isinstance(kernel_size, int):
-#             self.num_kernels = 1
-#         else:
-#             self.num_kernels = len(kernel_size)
-#         inter_channels = int(out_channels / self.num_kernels)
-#         # print(inter_channels)
-#         self.kernel_size = kernel_size
-#         pad = np.zeros(self.num_kernels, dtype=int)
-#         for i in range(self.num_kernels):
-#             pad[i] = int((kernel_size[i] - 1) / 2)
-#         # Multiscale temporal convolution
-#         self.tcn_list = nn.ModuleList()
-#         for i in range(self.num_kernels):
 
-#             self.tcn_list.append(
-#                 nn.Conv2d(in_channels, 
-#                 inter_channels, 
-#                 kernel_size=(kernel_size[i], 1), 
-#                 padding=(pad[i], 0),
-#                 stride=(stride, 1),
-#                 ))
-
-#         self.bn = nn.BatchNorm2d(out_channels)
-#         self.relu = nn.ReLU()
-#         for conv in self.tcn_list:
-#             conv_init(conv)
-#         bn_init(self.bn, 1)
-
-    # def forward(self, x):
-    #     y = self.tcn_list[0](x)
-    #     for i in range(1, self.num_kernels):
-    #         y = torch.cat((y, self.tcn_list[i](x)), dim=1)
-    #     x = self.bn(y)
-    #     return x
 
 
 class unit_gcn(nn.Module):
@@ -234,5 +198,5 @@ class Model(nn.Module):
         c_new = x.size(1)
         x = x.view(N, M, c_new, -1)
         x = x.mean(3).mean(1)
-
-        return self.fc(x)
+        # return output and features
+        return self.fc(x), x

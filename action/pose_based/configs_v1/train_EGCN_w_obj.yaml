@@ -1,0 +1,83 @@
+
+
+# Visualization
+visualize_skeleton: True
+visualize_obj: False
+visualize_rgb: False
+
+# Dataset
+dataset_path: /home/zhihao/ChiWang_MA/IKEA_ASM/dataset/
+obj_path: /media/zhihao/DataBase/IKEA_ASM/Object_Tracking
+db_filename: ikea_annotation_db_full
+camera: dev3
+pose_relative_path: predictions/pose2d/openpose
+train_filename: train_cross_env.txt
+test_filename: test_cross_env.txt
+with_obj: True
+
+# Setting
+load_mode: img
+input_type: rgb
+logdir: ./log/EGCN_50_w_obj
+
+#Dataloader
+frame_skip: 1
+batch_size: 48
+frames_per_clip: 50
+
+# Model
+arch: EGCN  #architechture
+model_args:
+  data_shape: [3, 9, 50, 18, 1]
+  stem_channel: 64
+  block_args: [[48,1,0.5],[24,1,0.5],[64,2,1],[128,2,1]]
+  fusion_stage: 2
+  act_type: swish
+  att_type: stja
+  layer_type: SG
+  drop_prob: 0.25
+  kernel_size: [5,2]
+  scale_args: [1.2,1.35]
+  expand_ratio: 2
+  reduct_ratio: 4
+  bias: True
+  edge: True
+  scale_factor: 5
+
+
+
+# Optimizer
+# SGD, Adam
+optimizer: Adam
+optimizer_args:
+  SGD:
+    lr: 0.1
+    momentum: 0.9
+    nesterov: True
+    weight_decay: 0.0001
+  Adam:
+    lr: 0.01
+    betas: [0.9,0.99]
+    weight_decay: 0.0001
+
+# Scheduler
+# step, cosine
+lr_scheduler: MultiStepLR
+scheduler_args:
+  step:
+    max_epoch: 70
+    warm_up: 10
+    step_lr: [20,50]
+  cosine:
+    max_epoch: 70
+    warm_up: 10
+  MultiStepLR:
+    milestones: [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    gamma: 0.6
+
+# Training
+n_epochs: 100
+steps_per_update: 1
+refine: False
+refine_epoch: 0
+gpu_idx: 0

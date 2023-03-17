@@ -26,7 +26,7 @@ from EfficientGCN.activations import *
 from IKEAActionDataset import IKEAPoseActionVideoClipDataset as Dataset
 
 
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--frame_skip', type=int, default=1, help='reduce fps by skippig frames')
@@ -97,23 +97,41 @@ def batch_multi_input(inputs:torch.Tensor, object_data):
     connection = np.array([1,1,1,2,3,1,5,6,2,8,9,5,11,12,0,0,14,15])
     new_input = []
     object_data = object_data.numpy()
+    # Append the object data to the inputs
     for i in range(N): 
-        object = object_data[i]
+        object_tmp = object_data[i]
         joint, velocity, bone = multi_input(inputs[i], connection)
-        joint = np.concatenate((joint, object), axis=0)
-        velocity = np.concatenate((velocity, object), axis=0)
-        bone = np.concatenate((bone, object), axis=0)
+        joint = np.concatenate((joint, object_tmp), axis=0)
+        velocity = np.concatenate((velocity, object_tmp), axis=0)
+        bone = np.concatenate((bone, object_tmp), axis=0)
         # print(type(joint))
         # print('new joint:', np.shape(joint))
         data = []
         data.append(joint)
         data.append(velocity)
-        # data.append(bone)
+        data.append(bone)
 
         new_input.append(data)
     inputs = torch.tensor(np.array(new_input, dtype='f'))
     return inputs
+def append_object_data(skeleton_data, object_data):
 
+    N, C, T, V, M = skeleton_data.size()
+    # print("Skeleton size:", skeleton_data.size())
+    # print("Obj size:", object_data.size())
+    object_data = object_data.numpy()
+    new_input = []
+    # Append the object data to the inputs
+    for i in range(N): 
+        object_tmp = object_data[i]
+        new_input.append(np.concatenate((skeleton_data[i].numpy(), object_tmp), axis=0))
+        
+
+
+
+    inputs = torch.tensor(np.array(new_input, dtype='f'))
+    # print("New input size:", inputs.size())
+    return inputs
 
 
 def run(init_lr=0.0001, max_steps=5e3, frames_per_clip=100, dataset_path='/media/sitzikbs/6TB/ANU_ikea_dataset/',
@@ -160,7 +178,7 @@ def run(init_lr=0.0001, max_steps=5e3, frames_per_clip=100, dataset_path='/media
                              edge_importance_weighting=True, dropout=0.5)
     elif arch == 'AGCN':
         model = agcn.Model(num_class=num_classes, num_point=18, num_person=1, 
-                          graph='graph.kinetics.Graph', graph_args={'labeling_mode':'spatial'}, in_channels=2)
+                          graph='graph.kinetics.Graph', graph_args={'labeling_mode':'spatial'}, in_channels=7)
     elif arch =='STGAN':
         config = [ [64, 64, 16, 1], [64, 64, 16, 1],
             [64, 128, 32, 2], [128, 128, 32, 1],
@@ -192,7 +210,7 @@ def run(init_lr=0.0001, max_steps=5e3, frames_per_clip=100, dataset_path='/media
                                     scale_factor=5)
         print('New block args:', block_args)
         act_type = 'swish'
-        model = EGCN(data_shape=(2, 5, frames_per_clip, 18, 1),stem_channel = 64,
+        model = EGCN(data_shape=(3, 9, frames_per_clip, 18, 1),stem_channel = 64,
                 block_args = block_args,
                 fusion_stage = 2,
                 num_class = num_classes,
@@ -225,7 +243,7 @@ def run(init_lr=0.0001, max_steps=5e3, frames_per_clip=100, dataset_path='/media
     model.cuda()
     # model = nn.DataParallel(model)
     # Load optimizer
-    milestones=[5, 10, 15, 20, 25, 30, 35, 40, 45]
+    milestones=[10, 20, 30, 40, 50, 60, 70, 80, 90]
     gamma = 0.6
     if arch == 'STGCN':
 
@@ -309,24 +327,22 @@ def run(init_lr=0.0001, max_steps=5e3, frames_per_clip=100, dataset_path='/media
             # print('joint:', joint_data.size())
             # print('object:', object_data.size())
             if arch == 'EGCN':
-                t1 = time.time()
+
                 inputs = batch_multi_input(joint_data, object_data)
-                print('Process input(batch multi input):', time.time()-t1)
-                # print(inputs.size())
+            else:
+                inputs = append_object_data(joint_data, object_data)
             # wrap them in Variable
+            # N x B x C x T x V x M
             inputs = Variable(inputs.cuda(), requires_grad=True)
+
             labels = Variable(labels.cuda())
             labels = torch.argmax(labels, dim=1)
             t1 = time.time()
-            if arch == 'EGCN':
-                logits, _ = model(inputs)
-            else:
-                logits = model(inputs)
-            if arch == 'EGCN':
-                t = inputs.size(3)
-            else:
-                t = inputs.size(2)
-            print('Forward:', time.time() - t1)
+
+            logits, _ = model(inputs)
+
+            t = frames_per_clip
+            # print('Forward:', time.time() - t1)
             per_frame_logits = torch.nn.functional.interpolate(logits.unsqueeze(-1), t, mode='linear', align_corners=True)
             #probs = torch.nn.functional.softmax(per_frame_logits, dim=1)
             loss = nn.CrossEntropyLoss()(per_frame_logits, labels)
@@ -362,22 +378,19 @@ def run(init_lr=0.0001, max_steps=5e3, frames_per_clip=100, dataset_path='/media
                     #print('Generating joint, velocity, bone data...')
                     inputs = batch_multi_input(inputs, object_data)
                     #print('Generating new information successfully!------------')
-
+                else:
+                    inputs = append_object_data(inputs, object_data)
                 # wrap them in Variable
                 inputs = Variable(inputs.cuda(), requires_grad=True)
                 labels = Variable(labels.cuda())
                 labels = torch.argmax(labels, dim=1)
 
                 with torch.no_grad():
-                    if arch == 'EGCN':
-                        logits, _ = model(inputs)
-                    else:
-                        logits = model(inputs)
+
+                    logits, _ = model(inputs)
+
                     
-                    if arch == 'EGCN':
-                        t = inputs.size(3)
-                    else:
-                        t = inputs.size(2)
+                    t = frames_per_clip
                     per_frame_logits = torch.nn.functional.interpolate(logits.unsqueeze(-1), t, mode='linear',
                                                                        align_corners=True)
                     probs = torch.nn.functional.softmax(per_frame_logits, dim=1)
@@ -418,6 +431,8 @@ def run(init_lr=0.0001, max_steps=5e3, frames_per_clip=100, dataset_path='/media
         steps += 1
         print('Update lr scheduler...')
         lr_sched.step()
+    logging.info("------Training Finished------")
+    print("Best accuracy:", best_acc)
     # train_writer.close()
     # test_writer.close()
 

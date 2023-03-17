@@ -220,7 +220,6 @@ def run(dataset_path, db_filename, model_path, output_path, frames_per_clip=16,
         # y_true = torch.argmax(labels, dim=1).cpu()
         # y_pred = torch.argmax(logits, dim=1).cpu()
         avg_acc.append(acc.item())
-        n_examples += batch_size
         #print('batch Acc: {}, [{} / {}]'.format(acc.item(), test_batchind, len(test_dataloader)))
         logits = logits.permute(0, 2, 1)  # [ batch, classes, frames] -> [ batch, frames, classes]
         # frames_per_clip = inputs.size()[2]
@@ -273,6 +272,7 @@ if __name__ == '__main__':
     # need to add argparse
     output_path = os.path.join(args.model_path, 'results')
     os.makedirs(output_path, exist_ok=True)
+    # best_classifier.pth
     model_path = os.path.join(args.model_path, args.model)
     run(dataset_path=args.dataset_path, db_filename=args.db_filename, model_path=model_path,
         output_path=output_path, frame_skip=args.frame_skip,  batch_size=args.batch_size,

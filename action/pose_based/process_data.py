@@ -66,11 +66,3 @@ for env in env_directory:
                 new_one = [new_one]
                 with open(current_path, 'w') as f:
                     json.dump(new_one, f)
-
-        
-
-
-        
-
-
-

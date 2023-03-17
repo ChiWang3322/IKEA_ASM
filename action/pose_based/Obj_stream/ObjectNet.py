@@ -1,9 +1,12 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.autograd import Variable
+
 import math
 
 import numpy as np
-import torch
-import torch.nn as nn
-from torch.autograd import Variable
+
 
 def import_class(name):
     components = name.split('.')
@@ -12,19 +15,21 @@ def import_class(name):
         mod = getattr(mod, comp)
     return mod
 
-# Initialize convolutional branch(weight initialization)
+# Initialize convolutional branch
 def conv_branch_init(conv, branches):
     weight = conv.weight
     n = weight.size(0)
     k1 = weight.size(1)
     k2 = weight.size(2)
-    nn.init.normal_(weight, 0, math.sqrt(2./ (n * k1 * k2 * branches)))
-    nn.init_constant_(conv.bias, 0)
+    nn.init.normal_(weight, 0, math.sqrt(2. / (n * k1 * k2 * branches)))
+    nn.init.constant_(conv.bias, 0)
+
 
 def conv_init(conv):
     nn.init.kaiming_normal_(conv.weight, mode='fan_out')
     nn.init.constant_(conv.bias, 0)
 
+# Init batch normalization layer
 def bn_init(bn, scale):
     nn.init.constant_(bn.weight, scale)
     nn.init.constant_(bn.bias, 0)
@@ -49,18 +54,22 @@ class unit_tcn(nn.Module):
     def forward(self, x):
         x = self.bn(self.conv(x))
         return x
+
+
+
 class unit_gcn(nn.Module):
-    def __init__(self, in_channels, out_channels, A, coff_embedding = 4, num_subset = 3):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, num_subset=3):
         super(unit_gcn, self).__init__()
         inter_channels = out_channels // coff_embedding
+        # print("inter channels:",inter_channels)
         self.inter_c = inter_channels
-
-        # Bk, trained with training data
+        # Bk in the paper
         self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
         nn.init.constant_(self.PA, 1e-6)
+        # Ak in the paper
+        # self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+        self.A = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
 
-        #Ak in the paper
-        self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad = False)
         self.num_subset = num_subset
 
         self.conv_a = nn.ModuleList()
@@ -68,24 +77,21 @@ class unit_gcn(nn.Module):
         self.conv_d = nn.ModuleList()
 
         for i in range(self.num_subset):
-            # kernel size 1, dimension transformation
             self.conv_a.append(nn.Conv2d(in_channels, inter_channels, 1))
             self.conv_b.append(nn.Conv2d(in_channels, inter_channels, 1))
             self.conv_d.append(nn.Conv2d(in_channels, out_channels, 1))
-        
-        # residual connection
+
         if in_channels != out_channels:
-            self.residual = nn.Sequential(
+            self.down = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, (1, 1)),
                 nn.BatchNorm2d(out_channels)
             )
         else:
-            self.residual = lambda x: x
-        
+            self.down = lambda x: x
+
         self.bn = nn.BatchNorm2d(out_channels)
         self.soft = nn.Softmax(-2)
         self.relu = nn.ReLU()
-
         # Layer initialization
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -93,7 +99,6 @@ class unit_gcn(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 bn_init(m, 1)
         bn_init(self.bn, 1e-6)
-        # why convd use branch init
         for i in range(self.num_subset):
             conv_branch_init(self.conv_d[i], self.num_subset)
 
@@ -104,7 +109,7 @@ class unit_gcn(nn.Module):
         A = A + self.PA
 
         y = None
-
+        # print("x.shape:", x.shape)
         for i in range(self.num_subset):
             # batch_size x V x CeT
             A1 = self.conv_a[i](x).permute(0, 3, 1, 2).contiguous().view(N, V, self.inter_c * T)
@@ -118,88 +123,130 @@ class unit_gcn(nn.Module):
             A2 = x.view(N, C * T, V)
             z = self.conv_d[i](torch.matmul(A2, A1).view(N, C, T, V))
             y = z + y if y is not None else z
-        y = self.bn(y)
-        y += self.residual(x)
 
+        y = self.bn(y)
+        y += self.down(x)
         return self.relu(y)
+
+
 class TCN_GCN_unit(nn.Module):
     def __init__(self, in_channels, out_channels, A, stride=1, residual=True):
-            super(TCN_GCN_unit, self).__init__()
-            self.gcn1 = unit_gcn(in_channels, out_channels, A)
-            self.tcn1 = unit_tcn(out_channels, out_channels, stride=stride)
-            self.relu = nn.ReLU()
-            if not residual:
-                self.residual = lambda x: 0
+        super(TCN_GCN_unit, self).__init__()
+        self.gcn1 = unit_gcn(in_channels, out_channels, A)
+        self.tcn1 = unit_tcn(out_channels, out_channels, stride=stride)
+        self.relu = nn.ReLU()
+        if not residual:
+            self.residual = lambda x: 0
 
-            elif (in_channels == out_channels) and (stride == 1):
-                self.residual = lambda x: x
 
-            else:
-                # Channel transformation
-                self.residual = unit_tcn(in_channels, out_channels, kernel_size=1, stride=stride)
+        elif (in_channels == out_channels) and (stride == 1):
+            self.residual = lambda x: x
+
+        else:
+            self.residual = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=(stride, 1))
+
     def forward(self, x):
         x = self.tcn1(self.gcn1(x)) + self.residual(x)
         return self.relu(x)
 
+
 class Model(nn.Module):
-    def __init__(self, 
-                num_class=60, num_point=18, 
-                num_person=1, graph=None, 
-                graph_args=dict(), in_channels=2):
+    def __init__(self, num_class=60, num_point=18, num_person=1, graph=None, graph_args=dict(), in_channels=2):
         super(Model, self).__init__()
 
         if graph is None:
             raise ValueError()
-        # Load graph
         else:
             Graph = import_class(graph)
             self.graph = Graph(**graph_args)
-        # Get predefined adjacency matrix
-        A = self.graph.A
 
+        A = self.graph.A
+        # print('A:', A)
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
+        # print("Parameter of bn:", num_person * in_channels * num_point)
+        # self.l1 = TCN_GCN_unit(in_channels, 64, A, residual=False)
+        # self.l2 = TCN_GCN_unit(64, 64, A)
+        # self.l3 = TCN_GCN_unit(64, 64, A)
+        # self.l4 = TCN_GCN_unit(64, 64, A)
+        # self.l5 = TCN_GCN_unit(64, 128, A, stride=2)
+        # self.l6 = TCN_GCN_unit(128, 128, A)
+        # self.l7 = TCN_GCN_unit(128, 128, A)
+        # self.l8 = TCN_GCN_unit(128, 256, A, stride=2)
+        # self.l9 = TCN_GCN_unit(256, 256, A)
+        # self.l10 = TCN_GCN_unit(256, 256, A)
 
         self.l1 = TCN_GCN_unit(in_channels, 64, A, residual=False)
         self.l2 = TCN_GCN_unit(64, 64, A)
-        self.l3 = TCN_GCN_unit(64, 64, A)
-        self.l4 = TCN_GCN_unit(64, 64, A)
-        self.l5 = TCN_GCN_unit(64, 128, A, stride=2)
-        self.l6 = TCN_GCN_unit(128, 128, A)
-        self.l7 = TCN_GCN_unit(128, 128, A)
-        self.l8 = TCN_GCN_unit(128, 256, A, stride=2)
-        self.l9 = TCN_GCN_unit(256, 256, A)
-        self.l10 = TCN_GCN_unit(256, 256, A)
+        self.l3 = TCN_GCN_unit(64, 128, A, stride=2)
+        self.l4 = TCN_GCN_unit(128, 128, A)
 
-        self.fc = nn.Linear(256, num_class)
 
+
+        self.fc = nn.Linear(128, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))
         bn_init(self.data_bn, 1)
 
     def forward(self, x):
+        # [32, 2, 64, 18, 1]
         N, C, T, V, M = x.size()
-
+        # [32, 36, 64]
         x = x.permute(0, 4, 3, 1, 2).contiguous().view(N, M * V * C, T)
         x = self.data_bn(x)
-
+        #[32, 2, 64, 18]
         x = x.view(N, M, V, C, T).permute(0, 1, 3, 4, 2).contiguous().view(N * M, C, T, V)
-
+        # x = self.l1(x)
+        # x = self.l2(x)
+        # x = self.l3(x)
+        # x = self.l4(x)
+        # x = self.l5(x)
+        # x = self.l6(x)
+        # x = self.l7(x)
+        # x = self.l8(x)
+        # x = self.l9(x)
+        # x = self.l10(x)
         x = self.l1(x)
         x = self.l2(x)
         x = self.l3(x)
         x = self.l4(x)
-        x = self.l5(x)
-        x = self.l6(x)
-        x = self.l7(x)
-        x = self.l8(x)
-        x = self.l9(x)
-        x = self.l10(x)
+        # x = self.l5(x)
+        # x = self.l6(x)
 
-        
-        c_new = x.size(1)   # 256
+        # N*M,C,T,V
+        c_new = x.size(1)
         x = x.view(N, M, c_new, -1)
-
-        x = x.view(N, M, c_new, -1)
-        # (N, C_NEW)
         x = x.mean(3).mean(1)
 
-        return self.fc(x)
+        # Return classification score and feature
+        return self.fc(x), x
+
+        
+
+
+
+
+
+class Combined_model(nn.Module):
+
+    def __init__(self, skeleton_model, obj_model):
+        super().__init__()
+
+        self.skeleton_stream = skeleton_model
+        self.obj_stream = obj_model
+        self.A = nn.Parameter(torch.rand(1))
+        self.B = nn.Parameter(1 - self.A)
+
+    def forward(self, x):
+        # x = (skeleton_data, obj_data)
+        skeleton_data, obj_data = x
+        res_skeleton,_ = self.skeleton_stream(skeleton_data)
+        res_obj,_ = self.obj_stream(obj_data)
+        
+        self.A = self.A.cuda(skeleton_data.get_device())
+        
+        self.B = self.B.cuda(skeleton_data.get_device())
+        # print("Coeff for skeleton data:",self.A.item())
+        # print("Coeff for object data:", self.B.item())
+        res = self.A * res_skeleton + self.B * res_obj
+        # print("res:",res)
+        # print("Add result!!!!!!")
+        return res

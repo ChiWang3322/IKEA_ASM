@@ -20,7 +20,15 @@ This work will be presented in WACV 2021.
 Abstract: 
 
 The availability of a large labeled dataset is a key requirement for applying deep learning methods to solve various computer vision tasks. In the context of understanding human activities, existing public datasets, while large in size, are often limited to a single RGB camera and provide only per-frame or per-clip action annotations. To enable richer analysis and understanding of human activities, we introduce IKEA ASM---a three million frame, multi-view, furniture assembly video dataset that includes depth, atomic actions, object segmentation, and human pose. Additionally, we benchmark prominent methods for video action recognition, object segmentation and human pose estimation tasks on this challenging dataset. The dataset enables the development of holistic methods, which integrate multi-modal and multi-view data to better perform on these tasks.
-
+### Dataset
+-IKEA_ASM
+ -...
+ -dataset
+  -indexing_files
+  -pose_annotations
+  -rgb_top
+  -depth
+  -...
 ### Citation
 If you find this dataset useful in your research, please cite our work:
 

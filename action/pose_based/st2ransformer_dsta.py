@@ -196,7 +196,7 @@ class STAttentionBlock(nn.Module):
         self.drop = nn.Dropout(attentiondrop)
 
     def forward(self, x):
-
+        
         N, C, T, V = x.size()
 
         #print(self.betas)
@@ -282,7 +282,7 @@ class STAttentionBlock(nn.Module):
 
 
 class DSTANet(nn.Module):
-    def __init__(self, num_class=60, num_point=25, num_frame=32, num_subset=4, dropout=0., config=None, num_person=2,
+    def __init__(self, num_class=60, num_point=25, num_frame=32, num_subset=4, dropout=0., config=None, num_person=1,
                  num_channel=3, glo_reg_s=True, att_s=True, glo_reg_t=False, att_t=True,
                  use_temporal_att=True, use_spatial_att=True, attentiondrop=0, dropout2d=0, use_pet=True, use_pes=True):
         super(DSTANet, self).__init__()
@@ -379,8 +379,8 @@ class DSTANet(nn.Module):
         x = x.mean(3).mean(1)
 
         x = self.drop_out(x)  # whole spatial of one channel
-
-        return self.fc(x)
+        # print(x.size())
+        return self.fc(x), x 
 
 
 if __name__ == '__main__':

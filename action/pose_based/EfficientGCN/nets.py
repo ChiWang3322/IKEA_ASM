@@ -11,7 +11,7 @@ class EfficientGCN(nn.Module):
         super(EfficientGCN, self).__init__()
 
         num_input, num_channel, _, _, _ = data_shape
-
+        
         # input branches
         self.input_branches = nn.ModuleList([EfficientGCN_Blocks(
             init_channel = stem_channel,
@@ -36,11 +36,12 @@ class EfficientGCN(nn.Module):
         init_param(self.modules())
 
     def forward(self, x):
-
+        # print("test:",x.size())
         N, I, C, T, V, M = x.size()
         x = x.permute(1, 0, 5, 2, 3, 4).contiguous().view(I, N*M, C, T, V)
         # print('x size:', x.size())
         # input branches
+        # print("num_input")
         x = torch.cat([branch(x[i]) for i, branch in enumerate(self.input_branches)], dim=1)
 
         # main stream
@@ -71,6 +72,7 @@ class EfficientGCN_Blocks(nn.Sequential):
 
         for i, [channel, stride, depth] in enumerate(block_args):
             self.add_module(f'block-{i}_scn', Spatial_Graph_Layer(last_channel, channel, max_graph_distance, **kwargs))
+            # print(depth)
             for j in range(depth):
                 s = stride if j == 0 else 1
                 self.add_module(f'block-{i}_tcn-{j}', temporal_layer(channel, temporal_window_size, stride=s, **kwargs))

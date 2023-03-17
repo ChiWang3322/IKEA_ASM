@@ -31,7 +31,7 @@ def sliding_accuracy(logits, target, slider_length):
 
 def accuracy_v2(output, target):
     """Computes the precision@k for the specified values of k"""
-
+    # target: N x T
     batch_size = target.size(0)
     n_frames = target.size(1)
     correct = output.eq(target.expand_as(output))

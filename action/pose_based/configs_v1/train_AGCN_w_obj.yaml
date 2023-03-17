@@ -1,0 +1,75 @@
+# configs need to be modified when change models
+# Model
+# Setting/logdir important!!!!!! otherwise the pretrained model will be covered
+# Dataset/with_obj with or without objects
+# batch_size with objects it will be smaller, without it can be larger
+
+# Visualization
+visualize_skeleton: True
+visualize_obj: False
+visualize_rgb: False
+# Setting
+load_mode: img
+input_type: rgb
+logdir: ./log/AGCN_50_w_obj
+# Dataset
+dataset_path: /home/zhihao/ChiWang_MA/IKEA_ASM/dataset/
+obj_path: /media/zhihao/DataBase/IKEA_ASM/Object_Tracking
+db_filename: ikea_annotation_db_full
+camera: dev3
+pose_relative_path: predictions/pose2d/openpose
+train_filename: train_cross_env.txt
+test_filename: test_cross_env.txt
+with_obj: True
+#Dataloader
+frame_skip: 1
+batch_size: 64
+frames_per_clip: 50
+
+# Model
+arch: AGCN  #architechture
+model_args: 
+  num_point: 18
+  num_person: 1
+  graph: 'graph.kinetics.Graph'
+  graph_args: {'labeling_mode':'spatial'}
+  in_channels: 7
+
+
+
+
+# Optimizer
+# SGD, Adam
+optimizer: Adam
+optimizer_args:
+  SGD:
+    lr: 0.1
+    momentum: 0.9
+    nesterov: True
+    weight_decay: 0.0001
+  Adam:
+    lr: 0.01
+    betas: [0.9,0.99]
+    weight_decay: 0.0001
+
+# Scheduler
+# step, cosine
+lr_scheduler: MultiStepLR
+scheduler_args:
+  step:
+    max_epoch: 70
+    warm_up: 10
+    step_lr: [20,50]
+  cosine:
+    max_epoch: 70
+    warm_up: 10
+  MultiStepLR:
+    milestones: [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    gamma: 0.6
+
+# Training
+n_epochs: 100
+steps_per_update: 1
+refine: False
+refine_epoch: 0
+gpu_idx: 0
