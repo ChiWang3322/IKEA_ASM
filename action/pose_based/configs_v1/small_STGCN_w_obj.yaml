@@ -1,5 +1,5 @@
 # configs need to be modified when change models
-# Model
+# Model and args
 # Setting/logdir important!!!!!! otherwise the pretrained model will be covered
 # Dataset/with_obj with or without objects
 # batch_size with objects it will be smaller, without it can be larger
@@ -24,19 +24,18 @@ batch_size: 48
 frames_per_clip: 50
 
 # Model
-arch: AGCN  #architechture
+arch: STGCN  #architechture
 model_args: 
-  num_point: 18
-  num_person: 1
-  graph: 'graph.kinetics.Graph'
-  graph_args: {'labeling_mode':'spatial'}
   in_channels: 7
+  graph_args: {'layout': 'openpose', 'strategy': 'spatial'}
+  edge_importance_weighting: True
+  dropout: 0.5
 
 
 # Setting
 load_mode: img
 input_type: rgb
-logdir: ./log/AGCN_50_w_obj
+logdir: ./log/STGCN_50_w_obj
 
 # Optimizer
 # SGD, Adam

@@ -22,7 +22,15 @@ CONFIG7_SMALL="small_DSTA_wo_obj"
 CONFIG8_SMALL="small_DSTA_w_obj"
 
 # # Test small
+# # STGCN
+# python3 train_v3.py --config $CONFIG1_SMALL
+# python3 train_v3.py --config $CONFIG2_SMALL
+# # EGCN
+# python3 train_v3.py --config $CONFIG3_SMALL
+# python3 train_v3.py --config $CONFIG4_SMALL
+
 # # AGCN
+# python3 train_v3.py --config $CONFIG5_SMALL
 # python3 train_v3.py --config $CONFIG6_SMALL
 # # DSTA
 # python3 train_v3.py --config $CONFIG7_SMALL
@@ -31,10 +39,16 @@ CONFIG8_SMALL="small_DSTA_w_obj"
 
 
 # Train
-# AGCN
-python3 train_v3.py --config $CONFIG6
+# STGCN
+python3 train_v3.py --config $CONFIG1
+python3 train_v3.py --config $CONFIG2
 # EGCN
+python3 train_v3.py --config $CONFIG3
 python3 train_v3.py --config $CONFIG4
+
+# AGCN
+python3 train_v3.py --config $CONFIG5
+python3 train_v3.py --config $CONFIG6
 # DSTA
 python3 train_v3.py --config $CONFIG7
 python3 train_v3.py --config $CONFIG8

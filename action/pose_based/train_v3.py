@@ -3,7 +3,7 @@
 # train pose based action recognition  methods on IKEA ASM dataset
 
 
-import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging
+import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging, datetime
 from yaml.loader import SafeLoader
 from tqdm import tqdm
 
@@ -17,8 +17,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
  
-import HCN, st_gcn, agcn, st2ransformer_dsta, agcn
+import st_gcn, agcn, st2ransformer_dsta
 from EfficientGCN.nets import EfficientGCN as EGCN
+
 from Obj_stream import ObjectNet
 from net.utils.graph import Graph as g
 import i3d_utils as utils
@@ -26,6 +27,11 @@ import i3d_utils as utils
 
 from EfficientGCN.activations import *
 from IKEAActionDataset import IKEAPoseActionVideoClipDataset as Dataset
+from torch.utils.tensorboard import SummaryWriter
+
+
+
+
 
 
 #from torch.utils.tensorboard import SummaryWriter
@@ -219,6 +225,11 @@ def import_class(name):
     return mod
 
 def run(args):
+    # Initialize summary writer with specific logdir
+    writer_log = args.logdir.split('/')[2]
+    print("Writer dir:", os.path.join('./runs', writer_log))
+    writer = SummaryWriter(os.path.join('./runs', writer_log))
+
 
     os.makedirs(args.logdir, exist_ok=True)
 
@@ -253,7 +264,7 @@ def run(args):
     num_classes = train_dataset.num_classes
     model_args = args.model_args
 
-    logging.info("-----Dataset INFO-----")
+    logging.info("----------------------Dataset INFO----------------------")
     print('Dataset: IKEA_ASM')
     print("Number of clips in the train dataset:{}".format(len(train_dataset)))
     print("Number of clips in the test dataset:{}".format(len(test_dataset)))
@@ -285,7 +296,7 @@ def run(args):
 
 
     # Print Optimizer INFO
-    logging.info("-----Optimizer and SCheduler INFO-----")
+    logging.info("-----------------Optimizer and SCheduler INFO----------------------")
     print('Using optimizer:{}'.format(optim_type))
     print('LR Scheduler:{}, milestone: {}, gamma:{}'.format('MultiStepLR', 
                                                         args.scheduler_args['MultiStepLR']['milestones'], 
@@ -295,7 +306,7 @@ def run(args):
     model_total_params = model_total_params / 10**6
 
     # Print model INFO
-    logging.info("-----Model INFO-----")
+    logging.info("-----------------------Model INFO---------------------------------")
     print('Skeleton stream:{}\nnumber of parameters:{}M'.format(arch, round(model_total_params, 2)))
     print('Model args:', model_args)
     
@@ -395,9 +406,9 @@ def run(args):
     #for epoch in range(num_epochs):
     for steps in range(max_steps):
         # Log info
-        logging.info("-------------Training model-------------")
+        logging.info("-------------------Training model-------------------")
         print('Step {}/{}, Learning rate:{}'.format(steps, max_steps, lr_sched.get_last_lr()))
-
+        writer.add_scalar("Current lr", torch.tensor(lr_sched.get_last_lr()), steps)
         # Initialization
         train_loss = 0.0
         num_iter = 0
@@ -456,7 +467,7 @@ def run(args):
             optimizer.zero_grad()
 
         # Evaluation Phase
-        logging.info('-------------Evaluating model-------------')
+        logging.info('-------------------Evaluating model-------------------')
         val_acc = []
         val_loss = 0.0
         model.train(False)  # Set model to evaluate mode
@@ -503,6 +514,12 @@ def run(args):
                         "optimizer_state_dict": optimizer.state_dict(),
                         "lr_state_dict": lr_sched.state_dict()}, os.path.join(args.logdir, 'best_classifier.pth'))
         # Report epoch loss and accuracy
+        writer.add_scalars("Loss", {'train':torch.tensor(round(train_loss/train_num_batch, 3))}, steps)
+        writer.add_scalars("Loss", {'validation':torch.tensor(round(val_loss/test_num_batch, 3))}, steps)
+        writer.add_scalars("Accuracy", {'train':torch.tensor(round(np.mean(train_acc), 3))}, steps)
+
+        writer.add_scalars("Accuracy", {'validation':torch.tensor(round(round(np.mean(val_acc), 3)))}, steps)
+        writer.add_scalars("Accuracy", {'best':torch.tensor(round(round(best_acc, 3)))}, steps)
         logging.info('-------------Training Epoch Result-------------')
         print('Loss: {}, Accuracy: {}'.format(round(train_loss/train_num_batch, 3), round(np.mean(train_acc), 3)))
         print('-------------Validation Epoch Result-------------')
@@ -511,8 +528,9 @@ def run(args):
         print('Update lr scheduler...')
 
         lr_sched.step()
-    logging.info('--------------Traing Finished--------------')
+    logging.info('--------------------Traing Finished--------------------')
     print("Best accuracy:", best_acc)
+    writer.close()
 
 
 

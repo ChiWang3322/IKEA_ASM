@@ -1,8 +1,4 @@
-# configs need to be modified when change models
-# Model
-# Setting/logdir important!!!!!! otherwise the pretrained model will be covered
-# Dataset/with_obj with or without objects
-# batch_size with objects it will be smaller, without it can be larger
+
 
 # Visualization
 visualize_skeleton: True
@@ -11,32 +7,43 @@ visualize_rgb: False
 
 # Dataset
 dataset_path: /home/zhihao/ChiWang_MA/IKEA_ASM/dataset/
-obj_path: /media/zhihao/DataBase/IKEA_ASM/Object_Tracking
 db_filename: ikea_annotation_db_full
 camera: dev3
 pose_relative_path: predictions/pose2d/openpose
 train_filename: train_cross_env_small.txt
 test_filename: test_cross_env_small.txt
-with_obj: True
+with_obj: False
+
+# Setting
+load_mode: img
+input_type: rgb
+logdir: ./log/EGCN_50_wo_obj
+
+
 #Dataloader
 frame_skip: 1
 batch_size: 48
 frames_per_clip: 50
 
 # Model
-arch: AGCN  #architechture
-model_args: 
-  num_point: 18
-  num_person: 1
-  graph: 'graph.kinetics.Graph'
-  graph_args: {'labeling_mode':'spatial'}
-  in_channels: 7
+arch: EGCN  #architechture
+model_args:
+  data_shape: [3, 4, 50, 18, 1]
+  stem_channel: 64
+  block_args: [[48,1,0.5],[24,1,0.5],[64,2,1],[128,2,1]]
+  fusion_stage: 2
+  act_type: swish
+  att_type: stja
+  layer_type: SG
+  drop_prob: 0.25
+  kernel_size: [5,2]
+  scale_args: [1.2,1.35]
+  expand_ratio: 2
+  reduct_ratio: 4
+  bias: True
+  edge: True
+  scale_factor: 5
 
-
-# Setting
-load_mode: img
-input_type: rgb
-logdir: ./log/AGCN_50_w_obj
 
 # Optimizer
 # SGD, Adam
