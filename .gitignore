@@ -1,4 +1,5 @@
 /dataset
 /action/pose_based/log/
+/action/pose_based/runs/
 .idea
 Testscript.txt

@@ -228,7 +228,7 @@ def run(args):
     # Initialize summary writer with specific logdir
     writer_log = args.logdir.split('/')[2]
     print("Writer dir:", os.path.join('./runs', writer_log))
-    writer = SummaryWriter(os.path.join('./runs', writer_log))
+    writer = SummaryWriter(os.path.join('./runs', writer_log + '_split'))
 
 
     os.makedirs(args.logdir, exist_ok=True)
@@ -241,23 +241,27 @@ def run(args):
                         transform=train_transforms, set='train', camera=args.camera, frame_skip=args.frame_skip,
                         frames_per_clip=args.frames_per_clip, mode=args.load_mode, pose_path=args.pose_relative_path, 
                         arch=args.arch, obj_path=args.obj_path, with_obj=args.with_obj)
-    # Sample according to label distribution
-    if args.train_filename == "train_cross_env.txt":
-        weights = utils.make_weights_for_balanced_classes(train_dataset.clip_set, train_dataset.clip_label_count)
-        sampler = torch.utils.data.sampler.WeightedRandomSampler(weights, len(weights))
-    else:
-        sampler = None
+    # set the split ratio
+    split_ratio = 0.8
 
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=sampler,
-                                                   num_workers=8, pin_memory=True)
+    # split the dataset into training and validation sets
+    dataset_size = len(train_dataset)
+    indices = list(range(dataset_size))
+    split = int(np.floor(split_ratio * dataset_size))
+    np.random.shuffle(indices)
+    train_indices, val_indices = indices[:split], indices[split:]
 
-    test_dataset = Dataset(args.dataset_path, db_filename=args.db_filename, train_filename=args.train_filename,
-                           test_filename=args.test_filename, transform=test_transforms, set='test', camera=args.camera,
-                           frame_skip=args.frame_skip, frames_per_clip=args.frames_per_clip, mode=args.load_mode,
-                           pose_path=args.pose_relative_path, arch=args.arch, with_obj=args.with_obj)
+    # define the samplers for training and validation sets
+    train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
+    val_sampler = torch.utils.data.SubsetRandomSampler(val_indices)
 
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=8,
-                                                  pin_memory=True)
+    # define the dataloaders
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=8,
+                                                  pin_memory=True, sampler=train_sampler)
+    test_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=val_sampler, 
+                                                    num_workers=8,pin_memory=True)
+
+
     
     # setup the model
     arch = args.arch
@@ -266,8 +270,9 @@ def run(args):
 
     logging.info("----------------------Dataset INFO----------------------")
     print('Dataset: IKEA_ASM')
-    print("Number of clips in the train dataset:{}".format(len(train_dataset)))
-    print("Number of clips in the test dataset:{}".format(len(test_dataset)))
+    print('Number of clips in the whole dataset(train_cross_env.txt):', int(len(train_dataset)))
+    print("Number of clips in the train dataset:{}".format(int(len(train_dataset)*0.8)))
+    print("Number of clips in the test dataset:{}".format(int(len(train_dataset)*0.2)))
     print("Classes:{}\nbatch_size:{}\nframe_skip:{}\nframes_per_clip:{}".format(num_classes, args.batch_size, args.frame_skip, args.frames_per_clip))
     print("Device:{}\ntrain filename:{}\ntest_filename:{}".format(args.camera, args.train_filename, args.test_filename))
     print("Object Included:{}".format(args.with_obj))
