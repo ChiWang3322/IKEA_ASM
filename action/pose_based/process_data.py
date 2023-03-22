@@ -4,8 +4,8 @@ from tqdm import tqdm
 import numpy as np
 
 
-root_directory = 'test'
-process_directory = 'test_processed'
+root_directory = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/segmentation_annotation/train'
+process_directory = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/segmentation_annotation/train_processed'
 
 # root_directory = 'train'
 # process_directory = 'train_processed'
@@ -16,7 +16,7 @@ env_directory = os.listdir(root_directory)
 for env in env_directory:
     new_dir = os.path.join(process_directory, env)
     os.makedirs(new_dir, exist_ok=True)
-print(env_directory)
+print('Environments:', env_directory)
 category_count = np.zeros([20])
 
 print('Start processing data')
@@ -27,7 +27,8 @@ for env in env_directory:
     for item in tqdm(item_directory):
         # make dir for item directory
         new_data = []
-        new_dir = os.path.join(process_directory, env, item, 'dev3')
+        new_dir = os.path.join(process_directory, env, item, 'dev3', 'seg')
+        # print("Making new directory at:", new_dir)
         os.makedirs(new_dir, exist_ok=True)
         json_directory = os.path.join(root_directory, env, item, 'dev3', 'all_gt_coco_format.json')
         f = open(json_directory)

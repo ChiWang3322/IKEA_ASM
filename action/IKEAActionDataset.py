@@ -892,7 +892,7 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
                  action_object_relation_filename='action_object_relation_list.txt', train_filename='train_cross_env.txt',
                  test_filename='test_cross_env.txt', transform=None, set='test', camera='dev3', frame_skip=1, mode='img',
                  frames_per_clip=64, pose_path='predictions/pose2d/keypoint_rcnn', arch='HCN', 
-                 obj_path='/media/zhihao/DataBase/IKEA_ASM/Object_Tracking', with_obj=True):
+                 obj_path='seg', with_obj=True):
         super().__init__(dataset_path=dataset_path, db_filename=db_filename, action_list_filename=action_list_filename,
                  action_object_relation_filename=action_object_relation_filename, train_filename=train_filename,
                          test_filename=test_filename, transform=transform, set=set, camera=camera, frame_skip=frame_skip,
@@ -939,6 +939,37 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
 
 
         return pose_seq
+    def load_obj(self, video_full_path, frame_ind, pose_size):
+        sample_path = video_full_path.replace('images', self.obj_path) # ...../seg/
+        c, t, v, m = pose_size
+        # Here define how many object data you want
+        object_data = np.zeros([5, t, v, m])
+        if self.with_obj:
+            # print("yes")
+            for count, index in enumerate(frame_ind):
+                
+                object_full_path = os.path.join(sample_path, str(index)+'.json')
+                if not os.path.exists(object_full_path):
+                    
+                    print("No objects detected in this frame")
+                    object_full_path = os.path.join(sample_path, str(index)+'.json')
+                    continue
+                with open(object_full_path) as json_file:
+                    objects = ujson.load(json_file)
+                    json_file.close()
+
+                for i, object_tmp in enumerate(objects): 
+                    # C T V M
+                    object_data[0, count, i, 0] = object_tmp['category_id']
+                    object_data[1:, count, i , 0] = object_tmp['bbox']
+
+        else:
+            object_data = 0
+        object_data = torch.tensor(object_data, dtype=torch.float32)
+        # print(object_data[:, 1, 0, 0])
+        # print(object_data.size())
+        # print("Load object data cost time:", time.time()-start)
+        return object_data
 
     def get_active_person(self, people, center=(960, 540), min_bbox_area=20000):
         """
@@ -1009,52 +1040,12 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
     def __getitem__(self, index):
         # 'Generate one sample of data'
         video_full_path, labels, frame_ind, n_frames_per_clip, vid_idx, frame_pad = self.clip_set[index]
-
         
-        sample_path = os.path.join(video_full_path.split('/')[-4], video_full_path.split('/')[-3], video_full_path.split('/')[-2])
-        # print('sample path:', sample_path)
-        if self.set == 'train':
-            self.object_set = 'train_processed'
-        else:
-            self.object_set = 'test_processed'
-
         
         poses = self.load_poses(video_full_path, frame_ind)
-        
-        try:
-            c, t, v, m = poses.size()
-            # Here define how many object data you want
-            object_data = np.zeros([5, t, v, m])
-            start = time.time()
-            if self.with_obj:
-                # print("yes")
-                for count, index in enumerate(frame_ind):
-                    
-                    object_full_path = os.path.join(self.obj_path, self.object_set, sample_path, str(index)+'.json')
-                    if not os.path.exists(object_full_path):
-                        #print("No objects detected in this frame")
-                        continue
-                    with open(object_full_path) as json_file:
-                        objects = ujson.load(json_file)
-                        json_file.close()
-                    # print("time1:", time.time()-start)
-                    # objects in one frame
-                    for i, object_tmp in enumerate(objects): 
-                        # C T V M
-                        object_data[0, count, i, 0] = object_tmp['category_id']
-                        object_data[1:, count, i , 0] = object_tmp['bbox']
-                        # print(object_data[:, count, i , 0])
-            else:
-                # print("else")
-                object_data = 0
-            object_data = torch.tensor(object_data, dtype=torch.float32)
-            # print(object_data.size())
-            # print("Load object data cost time:", time.time()-start)
-            return poses, torch.from_numpy(labels), vid_idx, frame_pad, object_data
-        except Exception as e:
-            print('defective input')
-            print(e)
-            return None
+        object_data = self.load_obj(video_full_path, frame_ind, poses.size())
+
+        return poses, torch.from_numpy(labels), vid_idx, frame_pad, object_data
 
 
 # This dataset loads per frame poses and images

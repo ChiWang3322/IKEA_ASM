@@ -227,8 +227,9 @@ def import_class(name):
 def run(args):
     # Initialize summary writer with specific logdir
     writer_log = args.logdir.split('/')[2]
-    print("Writer dir:", os.path.join('./runs', writer_log))
-    writer = SummaryWriter(os.path.join('./runs', writer_log + '_split'))
+    writer_dir = os.path.join('./runs', writer_log + '_split')
+    print("Writer dir:", writer_dir)
+    writer = SummaryWriter(writer_dir)
 
 
     os.makedirs(args.logdir, exist_ok=True)
@@ -270,6 +271,7 @@ def run(args):
 
     logging.info("----------------------Dataset INFO----------------------")
     print('Dataset: IKEA_ASM')
+    print('Dataset path:', args.dataset_path)
     print('Number of clips in the whole dataset(train_cross_env.txt):', int(len(train_dataset)))
     print("Number of clips in the train dataset:{}".format(int(len(train_dataset)*0.8)))
     print("Number of clips in the test dataset:{}".format(int(len(train_dataset)*0.2)))

@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from pyrutils import metrics
-import HCN, st_gcn, agcn, st2ransformer_dsta, agcn
+import st_gcn, agcn, st2ransformer_dsta, agcn
 from EfficientGCN.nets import EfficientGCN as EGCN
 from Obj_stream import ObjectNet
 from net.utils.graph import Graph as g

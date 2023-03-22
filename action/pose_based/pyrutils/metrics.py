@@ -168,7 +168,7 @@ def f1_at_k(y_true, y_pred, num_classes: int, *, overlap: float, ignore_value: f
             continue
         f1 += f1_at_k_single_example(y_t, y_p, num_classes, overlap=overlap)
         effective_examples += 1
-    return f1 / effective_examples * 5
+    return f1 / effective_examples 
 
 def f1(y_true, y_pred):
     f1 = 0.0

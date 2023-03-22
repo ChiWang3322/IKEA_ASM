@@ -6,8 +6,9 @@ visualize_obj: False
 visualize_rgb: False
 
 # Dataset
-dataset_path: /home/zhihao/ChiWang_MA/IKEA_ASM/dataset/
+dataset_path: /media/zhihao/Chi_SamSungT7/IKEA_ASM/
 db_filename: ikea_annotation_db_full
+obj_path: seg
 camera: dev3
 pose_relative_path: predictions/pose2d/openpose
 train_filename: train_cross_env.txt
@@ -71,7 +72,7 @@ scheduler_args:
     max_epoch: 70
     warm_up: 10
   MultiStepLR:
-    milestones: [10, 20, 30, 40, 50, 60, 70, 80, 90]
+    milestones: [5, 10, 15, 20, 25, 30, 50, 70, 90]
     gamma: 0.6
 
 # Training

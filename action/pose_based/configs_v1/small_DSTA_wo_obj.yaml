@@ -1,81 +1,98 @@
-# configs need to be modified when change models
-# Model
-# Setting/logdir important!!!!!! otherwise the pretrained model will be covered
-# Dataset/with_obj with or without objects
-# batch_size with objects it will be smaller, without it can be larger
-
-# Visualization
-visualize_skeleton: True
-visualize_obj: False
-visualize_rgb: False
-# Setting
-load_mode: img
-input_type: rgb
-logdir: ./log/DSTA_50_wo_obj
-# Dataset
-dataset_path: /home/zhihao/ChiWang_MA/IKEA_ASM/dataset/
-obj_path: /media/zhihao/DataBase/IKEA_ASM/Object_Tracking
-db_filename: ikea_annotation_db_full
-camera: dev3
-pose_relative_path: predictions/pose2d/openpose
-train_filename: train_cross_env_small.txt
-test_filename: test_cross_env_small.txt
-with_obj: False
-#Dataloader
-frame_skip: 1
+arch: DSTA
 batch_size: 48
+camera: dev3
+dataset_path: /media/zhihao/Chi_SamSungT7/IKEA_ASM
+db_filename: ikea_annotation_db_full
+frame_skip: 1
 frames_per_clip: 50
-
-# Model
-arch: DSTA  #architechture
-model_args: 
-  config: [[64, 64, 16, 1], [64, 64, 16, 1],
-            [64, 128, 32, 2], [128, 128, 32, 1],
-            [128, 256, 64, 2], [256, 256, 64, 1],
-            [256, 256, 64, 1], [256, 256, 64, 1],
-            ]
-  num_point: 18
-  num_frame: 50
-  dropout: 0.
-  num_person: 1
+gpu_idx: 0
+input_type: rgb
+load_mode: img
+logdir: ./log/DSTA_50_wo_obj_small
+lr_scheduler: MultiStepLR
+model_args:
+  config:
+  - - 64
+    - 64
+    - 16
+    - 1
+  - - 64
+    - 64
+    - 16
+    - 1
+  - - 64
+    - 128
+    - 32
+    - 2
+  - - 128
+    - 128
+    - 32
+    - 1
+  - - 128
+    - 256
+    - 64
+    - 2
+  - - 256
+    - 256
+    - 64
+    - 1
+  - - 256
+    - 256
+    - 64
+    - 1
+  - - 256
+    - 256
+    - 64
+    - 1
+  dropout: 0.0
   num_channel: 2
-
-
-
-
-
-# Optimizer
-# SGD, Adam
+  num_frame: 50
+  num_person: 1
+  num_point: 18
+n_epochs: 3
+obj_path: seg
 optimizer: Adam
 optimizer_args:
+  Adam:
+    betas:
+    - 0.9
+    - 0.99
+    lr: 0.01
+    weight_decay: 0.0001
   SGD:
     lr: 0.1
     momentum: 0.9
-    nesterov: True
+    nesterov: true
     weight_decay: 0.0001
-  Adam:
-    lr: 0.01
-    betas: [0.9,0.99]
-    weight_decay: 0.0001
-
-# Scheduler
-# step, cosine
-lr_scheduler: MultiStepLR
+pose_relative_path: predictions/pose2d/openpose
+refine: false
+refine_epoch: 0
 scheduler_args:
-  step:
-    max_epoch: 70
-    warm_up: 10
-    step_lr: [20,50]
+  MultiStepLR:
+    gamma: 0.6
+    milestones:
+    - 10
+    - 20
+    - 30
+    - 40
+    - 50
+    - 60
+    - 70
+    - 80
+    - 90
   cosine:
     max_epoch: 70
     warm_up: 10
-  MultiStepLR:
-    milestones: [10, 20, 30, 40, 50, 60, 70, 80, 90]
-    gamma: 0.6
-
-# Training
-n_epochs: 3
+  step:
+    max_epoch: 70
+    step_lr:
+    - 20
+    - 50
+    warm_up: 10
 steps_per_update: 1
-refine: False
-refine_epoch: 0
-gpu_idx: 0
+test_filename: test_cross_env_small.txt
+train_filename: train_cross_env_small.txt
+visualize_obj: false
+visualize_rgb: false
+visualize_skeleton: true
+with_obj: false
