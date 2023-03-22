@@ -61,7 +61,7 @@ class FunctionSwitcher:
                 skeleton_pairs = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12, 11), (10, 9), (9, 8),
                         (11, 5), (8, 2), (5, 1), (2, 1), (0, 1), (15, 0), (14, 0), (17, 15),
                         (16, 14)]
-                print(skeleton_pairs)
+                # print(skeleton_pairs)
                 bbox = self.seg()
                 bad_points_idx = [] # Points that are failed detected
                 # print("Skeleton pairs", skeleton_pairs)
@@ -89,7 +89,7 @@ class FunctionSwitcher:
                 cv2.imshow('Frame',img)
             
                 # Press Q on keyboard to  exit
-                if cv2.waitKey(40) == ord('q'):
+                if cv2.waitKey(20) == ord('q'):
                     break
                 frame_ind += 1
             # Break the loop
@@ -148,57 +148,14 @@ class FunctionSwitcher:
 
 
         if not os.path.exists(segment_path):
-            pass
+            segments = []
         else:
             segments = json.load(open(segment_path))
         return segments
         
         
 
-        # all_segments = json.load(open(segment_path))
-        # fid_track = open(tracking_path)
-        # tracking_results = str.split(fid_track.read(), '\n')
-
-        # track_id = []
-        # dict_tracks = {}
-        # for track in tracking_results:
-        #     if track != "":
-        #         track_id.append(int(str.split(track, ' ')[-3]))
-        #         items = str.split(track, ' ')
-        #         if items[-2] not in dict_tracks:
-        #             dict_tracks[items[-2]] = []
-        #         dict_tracks[items[-2]].append([items[0:5], items[-1]])
-
-        # # Obtain Unique colors for each part
-        # dict_colors = {}
-        # max_part = np.max(np.unique(track_id))
-        # r = random.sample(range(0, 255), max_part)
-        # g = random.sample(range(0, 255), max_part)
-        # b = random.sample(range(0, 255), max_part)
-        # for part_id in np.unique(track_id):
-        #     dict_colors[str(part_id)] = (int(r[part_id - 1]), int(g[part_id - 1]), int(b[part_id - 1]))
-
-        # all_segments_dict = {}
-
-        # for item in all_segments['annotations']:
-        #     if item['image_id'] not in all_segments_dict:
-        #         all_segments_dict[item['image_id']] = []
-        #     all_segments_dict[item['image_id']].append(item)
-
-        # fname = str(self.file_idx).zfill(6) + '.jpg'
-        # image_id = self.find_id(fname, all_segments)
-        # fname_id = int(str.split(fname, '.')[0])
-
-        # predictions = vis_utils.overlay_segmentation_mask(img, all_segments_dict[image_id], dict_tracks[str(fname_id)],
-        #                                              dict_colors, color_cat, cat_dict)
-
-        # if not self.resize_factor is None:
-        #     h, w, c = predictions.shape
-        #     h, w = (int(h / self.resize_factor), int(w / self.resize_factor))
-        #     predictions = cv2.resize(predictions, dsize=(w, h))  # resizing the images
-
-        # cv2.imwrite(output_filename, predictions)
-        # print(" Saved object segmentation to {}".format( output_filename))
+       
 
     def find_id(self, image_name, test_data):
         pass
@@ -207,27 +164,51 @@ class FunctionSwitcher:
         #         return item['id']
         # return -1
     
-    def get_active_person(self, data, center=(960, 540)):
+    def get_active_person(self, people, center=(960, 540), min_bbox_area=20000):
         """
-        Select the active skeleton in the scene by applying a heuristic of findng the one closest to the center of the frame
-        Parameters
-        ----------
-        data : pose data extracted from json file
+           Select the active skeleton in the scene by applying a heuristic of findng the closest one to the center of the frame
+           then take it only if its bounding box is large enough - eliminates small bbox like kids
+           Assumes 100 * 200 minimum size of bounding box to consider
+           Parameters
+           ----------
+           data : pose data extracted from json file
+           center: center of image (x, y)
+           min_bbox_area: minimal bounding box area threshold
 
-        Returns
-        -------
-        pose: skeleton of the active person in the scene
-        """
+           Returns
+           -------
+           pose: skeleton of the active person in the scene (flattened)
+           """
+
         pose = None
-        min_dtc = 0 # dtc = distance to center
-        for person in data['people']:
-            current_pose = person['pose_keypoints_2d']
-            dtc = self.compute_skeleton_distance_to_center(current_pose, center=center)
-            if dtc < min_dtc:
-                pose = current_pose
-                min_dtc = dtc
-        return pose
+        min_dtc = float('inf')  # dtc = distance to center
+        for person in people:
+            current_pose = np.array(person['pose_keypoints_2d'])
+            joints_2d = np.reshape(current_pose, (-1, 3))[:, :2]
+            if 'boxes' in person.keys():
+                # maskrcnn
+                bbox = person['boxes']
+            else:
+                # openpose
+                idx = np.where(joints_2d.any(axis=1))[0]
+                bbox = [np.min(joints_2d[idx, 0]),
+                        np.min(joints_2d[idx, 1]),
+                        np.max(joints_2d[idx, 0]),
+                        np.max(joints_2d[idx, 1])]
 
+            A = (bbox[2] - bbox[0]) * (bbox[3] - bbox[1])  # bbox area
+            bbox_center = (bbox[0] + (bbox[2] - bbox[0]) / 2, bbox[1] + (bbox[3] - bbox[1]) / 2)  # bbox center
+
+            dtc = np.sqrt(np.sum((np.array(bbox_center) - np.array(center)) ** 2))
+            if dtc < min_dtc:
+                closest_pose = current_pose
+                if A > min_bbox_area:
+                    pose = closest_pose
+                    min_dtc = dtc
+        # if all bboxes are smaller than threshold, take the closest
+        if pose is None:
+            pose = closest_pose
+        return pose
 
     def compute_skeleton_distance_to_center(self, skeleton, center=(960, 540)):
         """
@@ -242,8 +223,8 @@ class FunctionSwitcher:
             distance: the average distance of all non-zero joints to the center
         """
         idx = np.where(skeleton.any(axis=1))[0]
-        diff = skeleton - np.tile(center, len(skeleton[idx]))
-        distances = np.sqrt(np.mean(diff ** 2))
+        diff = skeleton - np.tile(center, [len(skeleton[idx]), 1])
+        distances = np.sqrt(np.sum(diff ** 2, 1))
         mean_distance = np.mean(distances)
 
         return mean_distance
@@ -256,7 +237,7 @@ if __name__ == '__main__':
     scan_name = None
     env_dir = os.path.join(dataset_dir, env_lists[0])
     item_list = os.listdir(env_dir)
-    scan_name = os.path.join(env_dir, item_list[0])
+    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0040_black_floor_09_04_2019_08_28_13_21'
     switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, resize_factor=None)
     switcher.display()
     # for env in env_lists:
