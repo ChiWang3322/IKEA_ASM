@@ -3,7 +3,7 @@ import glob
 import os
 import re
 import copy
-
+import cv2
 import numpy
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
@@ -67,11 +67,17 @@ def get_3d_object_center(data_2d_tmp, depth_image, rgb_image):
     cy = 240.000
     height, width = depth_image.shape
     for object_idx, object_2d in enumerate(data_2d_tmp):
+        # object_2d:<bb_left>, <bb_top>, <bb_width>, <bb_height>
+        box_width = int(object_2d[2])
+        box_high = int(object_2d[3])
+        center_x = object_2d[0] + box_width / 2
+        center_y = object_2d[1] * box_high / 2
 
-        center_x = object_2d['bounding_box']['x'] * width
-        center_y = object_2d['bounding_box']['y'] * height
-        box_width = object_2d['bounding_box']['w'] * width
-        box_high = object_2d['bounding_box']['h'] * height
+
+        # center_x = object_2d['bounding_box']['x'] * width
+        # center_y = object_2d['bounding_box']['y'] * height
+        # box_width = object_2d['bounding_box']['w'] * width
+        # box_high = object_2d['bounding_box']['h'] * height
 
         points = o3d.geometry.PointCloud()
 
@@ -551,210 +557,53 @@ def vis_cp(objs_dict_tmp, skeleton_list):
 
 
 if __name__ == '__main__':
-    DATA_DIR = 'sample_data'
-    'Labels Ground Truth'
-    # labels_file_path = "/home/yuankai/state_of_the_art/har/marsil/model-exploration/src/simulation/kit_bimanual/labels/take_0.json"
-    labels_file_path = f"{DATA_DIR}/labels/take_0.json"
-
-    labels_file = open(labels_file_path)
-    labels = json.load(labels_file)
-    labels_file.close()
-
-    original_right_hand_ground_truth_labels = labels['right_hand']
-    original_left_hand_ground_truth_labels = labels['left_hand']
-
-    righthand_ground_truth_labels = extend_labels(original_right_hand_ground_truth_labels)
-    lefthand_ground_truth_labels = extend_labels(original_left_hand_ground_truth_labels)
+    # read rgb video and depth video
+    dataset_dir = '/media/zhihao/Chi_SamSungT7/IKEA_ASM'
+    env_lists = ['Kallax_Shelf_Drawer', 'Lack_Coffee_Table', 'Lack_Side_Table', 'Lack_TV_Bench']
+    dev = 'dev3'
+    env_dir = os.path.join(dataset_dir, env_lists[0])
+    item_list = os.listdir(env_dir)
+    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Lack_Side_Table/0039_white_floor_08_04_2019_08_28_10_40'
+    steps = 1
+    depth_video = os.path.join(scan_name, dev, 'depth', 'scan_video.avi')
+    rgb_video = os.path.join(scan_name, dev, 'images', 'scan_video.avi')
+    # Read video
 
 
-    "Skeleton position 2d to 3d projection"
-    # skeleton_file_path = "/home/yuankai/state_of_the_art/har/marsil/model-exploration/src/simulation/kit_bimanual/body_pose"
-
-    # skeleton_file_path = "sample_data/body_pose"
-
-    skeleton_file_path = f"{DATA_DIR}/body_pose"
-
-    skeleton_parse_result = parse_dir(skeleton_file_path)
-
-    "Extract depth info"
-    # depth_image_path = "/home/yuankai/datasets/kit_bimanual/bimacs_rgbd_data/subject_1/task_2_k_cooking_with_bowls/take_0/depth"
-
-    # depth_image_path = "sample_data/depth"
-
-    depth_image_path = f"{DATA_DIR}/depth"
-
-    depth_images_list = []
-    depth_images_parse_result = []
-    for i in range(5):
-        depth_image_path_tmp = depth_image_path + "/chunk_" + str(i)
-        depth_images_parse_result += parse_image(depth_image_path_tmp)
-    depth_images = depth_images_transformation(depth_images_parse_result)
-
-    rgb_image_path = f"{DATA_DIR}/rgb"
-
-    rgb_images_list = []
-    rgb_images_parse_result = []
-    for i in range(5):
-        rgb_image_path_tmp = rgb_image_path + "/chunk_" + str(i)
-        rgb_images_parse_result += parse_image(rgb_image_path_tmp)
-    rgb_images = rgb_images_transformation(rgb_images_parse_result)
-
-    "'Map 2D skeleton to 3D'"
-    skeleton_3d_position_list = []
-    for i, file in enumerate(skeleton_parse_result):
-        skeleton_data_2d = open(file)
-        skeleton_tmp = json.load(skeleton_data_2d)
-        skeleton_3d_position = map2d_skeleton_to3D(skeleton_tmp, i, depth_images)
-        skeleton_3d_position_list.append(skeleton_3d_position)
-        skeleton_data_2d.close()
+    depth = cv2.VideoCapture(depth_video)
+    rgb = cv2.VideoCapture(rgb_video)
+    trans_m = []
+    frame_count = 0
+    while True:
+        ret1, frame1 = depth.read()
+        ret2, frame2 = rgb.read()
+        
+        curr_depth_image = cv2.resize(frame1, frame2.shape)
+        curr_rgb_image = frame2
 
 
-    'Object positions'
-    # objects_file_path = "/home/yuankai/state_of_the_art/har/marsil/model-exploration/src/simulation/kit_bimanual/3d_objects"
 
-    # objects_file_path = "sample_data/3d_objects"
+        if not frame_count == 0
+            trans_m = calculate_trans(curr_data_2d_tmp, past_data_2d_tmp, curr_depth_image, 
+                                    past_depth_image, curr_rgb_image, past_rgb_image)
+        if not ret1 or not ret2:
+            break
+        rgb_size = frame2.shape
 
-    objects_file_path = f"{DATA_DIR}/3d_objects"
-    objects_2d_file_path = f"{DATA_DIR}/2d_objects"
+        frame1_resized = cv2.resize(frame1, (int(rgb_size[1]/2), int(rgb_size[0]/2)))
+        frame2_resized = cv2.resize(frame2, (int(rgb_size[1]/2), int(rgb_size[0]/2)))
+        
+        frame_combined = cv2.vconcat([frame1_resized, frame2_resized])
+        
+        cv2.imshow('Depth and RGB', frame_combined)
+        
+        if cv2.waitKey(20) & 0xFF == ord('q'):
+            break
+        frame_count += 1
+        past_depth_image = curr_depth_image.copy()
+        past_rgb_image = curr_rgb_image.copy()
+    depth.release()
+    rgb.release()
+    cv2.destroyAllWindows()
 
-    object_spatial_relations_list = []
-    video_transformation_list = []
-    object_parse_result = parse_dir(objects_file_path)
-    object_2d_parse_result = parse_dir(objects_2d_file_path)
-
-    activity_gt_label = "cooking_with_bowls"
-
-    # vis
-    out_point = o3d.geometry.PointCloud()
-    vis = o3d.visualization.Visualizer()
-    # vis.create_window()
-    # vis.add_geometry(out_point)
-
-    # map
-    POSE_BODY_25_BODY_PARTS = {
-        "Nose": 0,
-        "Neck": 1,
-        "RShoulder": 2,
-        "RElbow": 3,
-        "RWrist": 4,
-        "LShoulder": 5,
-        "LElbow": 6,
-        "LWrist": 7,
-        "MidHip": 8,
-        "RHip": 9,
-        "RKnee": 10,
-        "RAnkle": 11,
-        "LHip": 12,
-        "LKnee": 13,
-        "LAnkle": 14,
-        "REye": 15,
-        "LEye": 16,
-        "REar": 17,
-        "LEar": 18,
-        "LBigToe": 19,
-        "LSmallToe": 20,
-        "LHeel": 21,
-        "RBigToe": 22,
-        "RSmallToe": 23,
-        "RHeel": 24,
-        "Background": 25
-    }
-
-    "Build the Train Dataset"
-    for i, file in enumerate(object_parse_result):
-        frame_idx = i
-        file_data = open(file)
-        data_tmp = json.load(file_data)
-
-        curr_file_2d = object_2d_parse_result[i]
-        curr_file_2d_data = open(curr_file_2d)
-        curr_data_2d_tmp = json.load(curr_file_2d_data)
-
-        curr_depth_image = depth_images[i]
-        curr_rgb_image = rgb_images[i]
-        if i > 0:
-            past_depth_image = depth_images[i-1]
-            past_rgb_images = rgb_images[i-1]
-            past_file_2d = object_2d_parse_result[i-1]
-            past_file_2d_data = open(past_file_2d)
-            past_data_2d_tmp = json.load(past_file_2d_data)
-        else:
-            past_depth_image = curr_depth_image
-            past_rgb_image = curr_rgb_image
-            past_file_2d = curr_file_2d
-            past_file_2d_data = curr_file_2d_data
-            past_data_2d_tmp = curr_data_2d_tmp
-
-        curr_trans = []
-        # curr_trans = calculate_trans(curr_data_2d_tmp, past_data_2d_tmp, curr_depth_image, past_depth_image, curr_rgb_image, past_rgb_image)
-        # print("curr_trans:", curr_trans)
-
-        righthand_gt_label = righthand_ground_truth_labels[i]
-        lefthand_gt_label = lefthand_ground_truth_labels[i]
-        objs_dict_tmp = transformation(data_tmp, curr_trans, i, righthand_gt_label, lefthand_gt_label)
-        # objs_dict_tmp = transformation(data_tmp, [], i, righthand_gt_label, lefthand_gt_label)
-        skeleton_list = skeleton_3d_position_list[i]
-
-        # vis center & joint
-        # function vis_cp
-        out_point_pf, line_pcd, out_center_pf, out_obj_pf = vis_cp(objs_dict_tmp, skeleton_list)
-
-        axis_pcd = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5, origin=[0, 0, 0])
-
-        # vis = o3d.visualization.Visualizer()
-
-        vis.create_window(window_name='Open3D_window', width=600, height=600, left=10, top=30, visible=True)
-        # vis.get_render_option().point_size = 10  # set size
-        # add_geometry
-
-        vis.clear_geometries() #clear
-        vis.add_geometry(axis_pcd)
-
-        # obj center for 3d
-        # vis.add_geometry(out_center_pf)
-        # obj for 2d
-        for idx, obj in enumerate(out_obj_pf):
-            vis.add_geometry(obj)
-        vis.add_geometry(out_point_pf)  # joint location
-        vis.add_geometry(line_pcd)  # line
-        # vis.update_geometry()
-        vis.poll_events()
-        vis.update_renderer()
-
-        frame_dict = {
-            "frame_index": frame_idx,
-            "ojs_info": objs_dict_tmp,
-            "skeleton_info": skeleton_list,
-            "righthand_gt_label": righthand_gt_label,
-            "lefthand_gt_label": lefthand_gt_label,
-            "activity_gt": activity_gt_label
-        }
-        video_transformation_list.append(frame_dict)
-        file_data.close()
-    #
-    # print(video_transformation_list)
-
-    # skeleton_visulisation(skeleton_3d_position_list)
-    #
-    # 'Write down the info in .csv file'
-    # with open("video_info.csv", 'w') as csv_file:
-    #     writer = csv.writer(csv_file)
-    #     for key, value in enumerate(video_transformation_list):
-    #         writer.writerow(value)
-    "Write down the infor in .json"
-    # with open("../data.json", 'w') as json_file: default
-    with open("data_wt.json", 'w') as json_file:
-        # for key, value in enumerate(video_transformation_list):
-        json.dump(video_transformation_list, json_file, indent=4)
-        print("save data.json processing finished")
-
-
-    # skeleton_visulisation(skeleton_3d_position_list)
-
-    os.makedirs(f"{DATA_DIR}/result", exist_ok=True)
-    'Write down the info in .csv file'
-    with open(f"{DATA_DIR}/result/video_info.csv", 'w') as csv_file:
-        writer = csv.writer(csv_file)
-        for key, value in enumerate(video_transformation_list):
-            writer.writerow(value)
 

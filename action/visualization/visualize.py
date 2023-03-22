@@ -13,7 +13,7 @@ import utils
 
 class FunctionSwitcher:
 
-    def __init__(self, scan_path, output_path=None, modality='dev3', resize_factor=None):
+    def __init__(self, scan_path, output_path=None, modality='dev3', resize_factor=None, context = True):
         self.scan_path = scan_path
         self.output_path = output_path
         # os.makedirs(output_path, exist_ok=True)
@@ -21,6 +21,7 @@ class FunctionSwitcher:
         # self.name_mapping_dict = name_mapping_dict
         self.resize_factor = resize_factor
         self.file_idx = 0
+        self.context = context
 
     def change_video(self, video_path):
         self.scan_path = video_path
@@ -39,6 +40,9 @@ class FunctionSwitcher:
         while(cap.isOpened()):
         # Capture frame-by-frame
             ret, img = cap.read()
+            if not self.context:
+                img = np.zeros(img.shape,dtype=np.uint8)
+                img.fill(255)
             if ret == True:
                 self.file_idx = frame_ind
                 
@@ -52,10 +56,12 @@ class FunctionSwitcher:
                     cat_id = obj['category_id']
                     bbox = obj['bbox'] # <bb_left>, <bb_top>, <bb_width>, <bb_height>
                     x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
+                    center_x = int(x + w / 2)
+                    center_y = int(y + h / 2)
                     pt1 = (int(x), int(y))
                     pt2 = (int(x + w), int(y + h))
                     cv2.rectangle(img, pt1, pt2, color_cat[cat_id], thickness=2)
-
+                    cv2.circle(img, (center_x, center_y), 3, (255, 0, 0), thickness=-1, lineType=cv2.FILLED)
                 # Show skeleton data on img
                 j2d, _ = self.pose()
                 skeleton_pairs = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12, 11), (10, 9), (9, 8),
@@ -67,7 +73,7 @@ class FunctionSwitcher:
                 # print("Skeleton pairs", skeleton_pairs)
                 for i, point in enumerate(j2d):
                     if not point[0] == 0 and not point[1] == 0:
-                        cv2.circle(img, (int(point[0]), int(point[1])), 4, (255, 0, 0), thickness=-1, lineType=cv2.FILLED)
+                        cv2.circle(img, (int(point[0]), int(point[1])), 2, (255, 0, 0), thickness=-1, lineType=cv2.FILLED)
                     else:
                         bad_points_idx.append(i)
 
@@ -83,7 +89,7 @@ class FunctionSwitcher:
                         line_color = part_colors[i]
 
                         img = cv2.line(img, (int(j2d[partA][0]), int(j2d[partA][1])), 
-                                            (int(j2d[partB][0]), int(j2d[partB][1])), line_color, 3)
+                                            (int(j2d[partB][0]), int(j2d[partB][1])), line_color, 1)
                 # Display the resulting frame
                 
                 cv2.imshow('Frame',img)
@@ -237,8 +243,8 @@ if __name__ == '__main__':
     scan_name = None
     env_dir = os.path.join(dataset_dir, env_lists[0])
     item_list = os.listdir(env_dir)
-    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0040_black_floor_09_04_2019_08_28_13_21'
-    switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, resize_factor=None)
+    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Lack_Side_Table/0039_white_floor_08_04_2019_08_28_10_40'
+    switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, resize_factor=None, context=False)
     switcher.display()
     # for env in env_lists:
     #     env_dir = os.path.join(dataset_dir, env)
