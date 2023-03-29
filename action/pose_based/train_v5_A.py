@@ -3,7 +3,7 @@
 # train pose based action recognition  methods on IKEA ASM dataset
 
 
-import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging
+import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging, datetime
 from yaml.loader import SafeLoader
 from tqdm import tqdm
 
@@ -12,23 +12,26 @@ sys.path.append('../clip_based/i3d/')  # for utils and video transforms
 sys.path.append('../..')    #for data loader
 sys.path.append('../../..')# for dataset
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"   
-import i3d_utils
-from sklearn.metrics import confusion_matrix
-from matplotlib import pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
-from pyrutils import metrics
-import st_gcn, agcn, st2ransformer_dsta, agcn
+ 
+import st_gcn, agcn, st2ransformer_dsta
 from EfficientGCN.nets import EfficientGCN as EGCN
+
 from Obj_stream import ObjectNet
 from net.utils.graph import Graph as g
-import utils
-from sklearn.metrics import accuracy_score
+import i3d_utils as utils
+
 
 from EfficientGCN.activations import *
 from IKEAActionDataset import IKEAPoseActionVideoClipDataset as Dataset
+from torch.utils.tensorboard import SummaryWriter
+
+
+
+
 
 
 #from torch.utils.tensorboard import SummaryWriter
@@ -85,6 +88,10 @@ def init_parser():
     parser.add_argument('--scheduler_args', default=dict(), help='Args for scheduler')
     return parser
 
+
+#########################################
+######## Modify adjacency matrix ########
+#########################################
 def init_model(model_type, model_args, num_classes):
     if model_type == 'STGCN':
         # open-pose layout
@@ -126,6 +133,7 @@ def init_model(model_type, model_args, num_classes):
                 'act': __activations[model_args['act_type']]
             }
             model = EGCN(**model_args, **kargs)
+    
     elif model_type == 'DSTA':
 
         model = st2ransformer_dsta.DSTANet(num_class=num_classes,**model_args)  
@@ -138,6 +146,10 @@ def init_model(model_type, model_args, num_classes):
 def visualize_data():
     pass
 
+
+#########################################
+######## Modify Input ########
+#########################################
 def multi_input(data, connection):
     """
     A function used to generate joint, bone and velocity from only joint data
@@ -174,7 +186,10 @@ def multi_input(data, connection):
     for i in range(C):
         bone[C+i,:,:,:] = np.arccos(bone[i,:,:,:] / bone_length)
     return joint, velocity, bone
-
+    
+#########################################
+######## Modify Input ########
+#########################################
 def batch_multi_input(inputs:torch.Tensor, object_data, with_obj):
     N, C, T, V, M = inputs.size()
     connection = np.array([1,1,1,2,3,1,5,6,2,8,9,5,11,12,0,0,14,15])
@@ -221,35 +236,57 @@ def import_class(name):
     return mod
 
 def run(args):
+    # Initialize summary writer with specific logdir
+    writer_log = args.logdir.split('/')[2]
+    writer_dir = os.path.join('./runs', writer_log + '_split')
+    print("Writer dir:", writer_dir)
+    writer = SummaryWriter(writer_dir)
+
 
     os.makedirs(args.logdir, exist_ok=True)
 
-    # setup test dataset
+    # setup dataset
+    train_transforms = None
     test_transforms = None
-    test_dataset = Dataset(args.dataset_path, db_filename=args.db_filename, train_filename=args.train_filename,
-                           test_filename=args.test_filename, transform=test_transforms, set='test', camera=args.camera,
-                           frame_skip=args.frame_skip, frames_per_clip=args.frames_per_clip, mode=args.load_mode,
-                           pose_path=args.pose_relative_path, arch=args.arch, with_obj=args.with_obj)
+    train_dataset = Dataset(args.dataset_path, db_filename=args.db_filename, train_filename=args.train_filename,
+                        test_filename=args.test_filename,
+                        transform=train_transforms, set='train', camera=args.camera, frame_skip=args.frame_skip,
+                        frames_per_clip=args.frames_per_clip, mode=args.load_mode, pose_path=args.pose_relative_path, 
+                        arch=args.arch, obj_path=args.obj_path, with_obj=args.with_obj)
+    # set the split ratio
+    split_ratio = 0.8
 
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, num_workers=8,
-                                                  pin_memory=True)
+    # split the dataset into training and validation sets
+    dataset_size = len(train_dataset)
+    indices = list(range(dataset_size))
+    split = int(np.floor(split_ratio * dataset_size))
+    np.random.shuffle(indices)
+    train_indices, val_indices = indices[:split], indices[split:]
+
+    # define the samplers for training and validation sets
+    train_sampler = torch.utils.data.SubsetRandomSampler(train_indices)
+    val_sampler = torch.utils.data.SubsetRandomSampler(val_indices)
+
+    # define the dataloaders
+    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=8,
+                                                  pin_memory=True, sampler=train_sampler)
+    test_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=val_sampler, 
+                                                    num_workers=8,pin_memory=True)
+
+
     
     # setup the model
     arch = args.arch
-    num_classes = test_dataset.num_classes
+    num_classes = train_dataset.num_classes
     model_args = args.model_args
-    print('#############################################')
-    print('#############################################')
-    print('#############################################')
-    print('#############   Testing Model   #############')
-    print('#############################################')
-    print('#############################################')
-    print('#############################################')
-    
-    logging.info("-------------Dataset INFO-------------")
+
+    logging.info("----------------------Dataset INFO----------------------")
     print('Dataset: IKEA_ASM')
-    print("Number of clips in the test dataset:{}".format(len(test_dataset)))
-    print("Classes:{}\n batch_size:{}\nframe_skip:{}\nframes_per_clip:{}".format(num_classes, args.batch_size, args.frame_skip, args.frames_per_clip))
+    print('Dataset path:', args.dataset_path)
+    print('Number of clips in the whole dataset(train_cross_env.txt):', int(len(train_dataset)))
+    print("Number of clips in the train dataset:{}".format(int(len(train_dataset)*0.8)))
+    print("Number of clips in the test dataset:{}".format(int(len(train_dataset)*0.2)))
+    print("Classes:{}\nbatch_size:{}\nframe_skip:{}\nframes_per_clip:{}".format(num_classes, args.batch_size, args.frame_skip, args.frames_per_clip))
     print("Device:{}\ntrain filename:{}\ntest_filename:{}".format(args.camera, args.train_filename, args.test_filename))
     print("Object Included:{}".format(args.with_obj))
 
@@ -257,14 +294,7 @@ def run(args):
 
     # Here use import class easier
     model = init_model(args.arch, args.model_args, num_classes)
-    
-    model_path = os.path.join(args.logdir, 'best_classifier.pth')
-    checkpoints = torch.load(model_path)
-    model.load_state_dict(checkpoints["model_state_dict"]) # load trained model
-    model.cuda()
-    
-    ########################################
-
+   
     ########################################
     ##### Insert code here for refine ######
     ########################################
@@ -273,14 +303,40 @@ def run(args):
         model.cuda()
 
 
+    # Init optimizer
+    optim_args = args.optimizer_args
+    optim_type = args.optimizer
+    opt_args = optim_args[optim_type]
+    optimizer = optim.Adam(model.parameters(), **opt_args)
+
+    # Init learning rate scheduler
+    lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, **(args.scheduler_args['MultiStepLR']))
+
+
+    # Print Optimizer INFO
+    logging.info("-----------------Optimizer and SCheduler INFO----------------------")
+    print('Using optimizer:{}'.format(optim_type))
+    print('LR Scheduler:{}, milestone: {}, gamma:{}'.format('MultiStepLR', 
+                                                        args.scheduler_args['MultiStepLR']['milestones'], 
+                                                        args.scheduler_args['MultiStepLR']['gamma']))
+
     model_total_params = sum(p.numel() for p in model.parameters())
     model_total_params = model_total_params / 10**6
 
     # Print model INFO
-    logging.info("-------------Model INFO-------------")
+    logging.info("-----------------------Model INFO---------------------------------")
     print('Skeleton stream:{}\nnumber of parameters:{}M'.format(arch, round(model_total_params, 2)))
     print('Model args:', model_args)
     
+    # train iterations
+    train_num_batch = len(train_dataloader)
+    test_num_batch = len(test_dataloader)
+
+
+    best_acc = 0
+
+        
+    max_steps = args.n_epochs
 
     def process_skeleton_data(model_type, skeleton_data, object_data, with_obj):
         # Model type
@@ -349,9 +405,11 @@ def run(args):
                 assert inputs[0, 1, 3, 2, 0] == skeleton_data[0, 1, 3, 2, 0], "Inputs data wrong when without objects"
 
     def test_skeleton_data(skeleton_data):
-
         pass
-
+        # skeleton_data = skeleton_data.numpy()
+        # # if EGCN
+        # assert skeleton_data.shape == (args.batch_size, 2, args.frames_per_clip, 18, 1), "Wrong skeleton data shape"
+        # if other models
     def test_object_data(object_data, with_obj=args.with_obj):
         # .any() method, False If the array contains only zeros
         contains_none_zero = object_data.numpy().any()
@@ -361,111 +419,137 @@ def run(args):
             assert contains_none_zero == True, "With object data but object data contains only zero"
         else:
             assert contains_none_zero == False, "Without object data but object data contains none zero"
+    def stack_inputs(skeleton_data, obj_data):
+        pass
 
+    #for epoch in range(num_epochs):
+    for steps in range(max_steps):
+        # Log info
+        logging.info("-------------------Training model-------------------")
+        print('Step {}/{}, Learning rate:{}'.format(steps, max_steps, lr_sched.get_last_lr()))
+        writer.add_scalar("Current lr", torch.tensor(lr_sched.get_last_lr()), steps)
+        # Initialization
+        train_loss = 0.0
+        num_iter = 0
+        optimizer.zero_grad()
 
-
-
-    # Initialization
-    # Iterate over data.
-    avg_acc = []
-    pred_labels_per_video = [[] for i in range(len(test_dataset.video_list))]
-    true_labels_per_video = [[] for i in range(len(test_dataset.video_list))]
-    logits_per_video = [[] for i in range(len(test_dataset.video_list))]
-    f1_10, f1_25, f1_50 = 0, 0, 0
-    frames_per_clip = args.frames_per_clip
-    true = []
-    pred = []
-    # Training phase
-    for _, data in enumerate(tqdm(test_dataloader)):
-        model.train(False)
-        # get the inputs
-        skeleton_data, labels, vid_idx, frame_pad, object_data = data
+        # Iterate over data.
+        train_acc = []
         
-        ###################################################################
-        test_object_data(object_data, with_obj=args.with_obj)
-        test_skeleton_data(skeleton_data)
-        ###################################################################
+        # Training phase
+        for train_batchind, data in enumerate(tqdm(train_dataloader)):
+            model.train(True)
+            num_iter += 1
+            # get the inputs
+            skeleton_data, labels, vid_idx, frame_pad, object_data = data
+            
+            ###################################################################
+            test_object_data(object_data, with_obj=args.with_obj)
+            test_skeleton_data(skeleton_data)
+            ###################################################################
 
-        inputs = process_skeleton_data(arch, skeleton_data, object_data, args.with_obj)
+            inputs = process_skeleton_data(arch, skeleton_data, object_data, args.with_obj)
 
-        ###################################################################
-        test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
-        ###################################################################
+            ###################################################################
+            # test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
+            ###################################################################
 
-        inputs = Variable(inputs.cuda(), requires_grad=True)
-        
-        labels = Variable(labels.cuda())
-
-        # Score and feature(ignored)
-        # logits: N x Classes
-        logits,_ = model(inputs)
-        # Length
-        t = args.frames_per_clip
-
-
-        # Interpolate over all frames in the clip
-        # logits after interpolate: N x classes x T
-        logits = torch.nn.functional.interpolate(logits.unsqueeze(-1), t, mode='linear', align_corners=True)
-        # logits: N x num_classes x T
-        acc = i3d_utils.accuracy_v2(torch.argmax(logits, dim=1), torch.argmax(labels, dim=1))
-        avg_acc.append(acc.item())
-        pred.append(torch.argmax(logits, 1).detach().cpu().numpy().tolist())
-        true.append(torch.argmax(labels, 1).detach().cpu().numpy().tolist())
-        logits = logits.permute(0, 2, 1)  # [ batch, frames, classes]
-        # frames_per_clip = inputs.size()[2]
-        # print('frames_per_segment:', frames_per_clip)
-        # logits: N*T x classes
-        logits = logits.reshape(inputs.shape[0] * frames_per_clip, -1)
-        labels = labels.reshape(inputs.shape[0] * frames_per_clip, -1)
-        pred_labels = torch.argmax(logits, 1).detach().cpu().numpy().tolist()
-        true_labels = torch.argmax(labels, 1).detach().cpu().numpy().tolist()
-        # print('pred_labels:',np.shape(pred_labels))
-        # print('true_labels:',np.shape(true_labels))
-        logits = torch.nn.functional.softmax(logits, dim=1).detach().cpu().numpy().tolist()
-        # frame_pad = torch.tensor([0])
-        pred_labels_per_video, logits_per_video = \
-            utils.accume_per_video_predictions(vid_idx, frame_pad,pred_labels_per_video, logits_per_video, pred_labels,
-                                     logits, frames_per_clip)
-        true_labels_per_video, true_logits_per_video = \
-            utils.accume_per_video_predictions(vid_idx, frame_pad,true_labels_per_video, labels.detach().cpu().numpy().tolist(), true_labels,
-                                        logits, frames_per_clip)
-    
-    
-    f1_10 = metrics.f1_at_k(true_labels_per_video, pred_labels_per_video, num_classes=num_classes, overlap=0.1)
-    f1_25 = metrics.f1_at_k(true_labels_per_video, pred_labels_per_video, num_classes=num_classes, overlap=0.25)
-    f1_50 = metrics.f1_at_k(true_labels_per_video, pred_labels_per_video, num_classes=num_classes, overlap=0.5)
-    # Compute confusion matrix
-
-    # c_matrix = confusion_matrix(np.concatenate(true_labels_per_video).ravel(), np.concatenate(pred_labels_per_video).ravel(),
-    #                             labels=range(num_classes))
-    c_matrix = confusion_matrix(np.concatenate(true).ravel(), np.concatenate(pred).ravel(),
-                                labels=range(num_classes))
-    class_names = utils.squeeze_class_names(test_dataset.action_list)
-    # print("action list:", test_dataset.action_list)
-    # print("class names list:", class_names)
-    fig, ax = utils.plot_confusion_matrix(cm=c_matrix,
-                      target_names=class_names,
-                      title='Confusion matrix',
-                      cmap=None,
-                      normalize=True)
-
-    plt.savefig(os.path.join(args.logdir, 'confusion_matrix.png'))
-
-
-    concat_acc = accuracy_score(np.concatenate(true).ravel(), np.concatenate(pred).ravel())
-    logging.info("--------------Test Report--------------")
-    print('Model:', args.arch)
-    print('Model args:', args.model_args)
-    print('Average accuracy(framewise):', np.mean(avg_acc))
-    print('Accuracy concat video frames:', concat_acc)
-    print("F1@10%:", f1_10)
-    print("F1@25%:", f1_25)
-    print("F1@50%:", f1_50)
-    print("Confusion matrix: Done")
+            inputs = Variable(inputs.cuda(), requires_grad=True)
+            # print("Inputs:", inputs.size())
             
 
 
-        
+            labels = Variable(labels.cuda())
+            labels = torch.argmax(labels, dim=1)
+
+            # Score and feature(ignored)
+            logits,_ = model(inputs)
+            # Length
+            t = args.frames_per_clip
+
+
+            # Interpolate over all frames in the clip
+            per_frame_logits = torch.nn.functional.interpolate(logits.unsqueeze(-1), t, mode='linear', align_corners=True)
+            # Loss function
+            loss = nn.CrossEntropyLoss()(per_frame_logits, labels)
+            # Accumulate loss
+            train_loss += loss.item()
+            loss.backward()
+            # Calculate accuracy
+            acc = utils.accuracy_v2(torch.argmax(per_frame_logits, dim=1), labels)
+
+            
+            train_acc.append(acc.item())
+            
+            # Update weights 
+            optimizer.step()
+            optimizer.zero_grad()
+
+        # Evaluation Phase
+        logging.info('-------------------Evaluating model-------------------')
+        val_acc = []
+        val_loss = 0.0
+        model.train(False)  # Set model to evaluate mode
+        # start_eval_time = time()
+        with torch.no_grad():
+            for test_batchind, data in enumerate(tqdm(test_dataloader)):
+                skeleton_data, labels, vid_idx, frame_pad, object_data = data
+
+                inputs = process_skeleton_data(arch, skeleton_data, object_data, args.with_obj)
+
+                # test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
+
+                inputs = Variable(inputs.cuda(), requires_grad=False)
+                
+                labels = Variable(labels.cuda())
+                labels = torch.argmax(labels, dim=1)
+
+                logits,_ = model(inputs)
+                t = args.frames_per_clip
+                per_frame_logits = torch.nn.functional.interpolate(logits.unsqueeze(-1), t, mode='linear', align_corners=True)
+                # Interpolate over all frames in the clip
+                per_frame_logits = torch.nn.functional.interpolate(logits.unsqueeze(-1), t, mode='linear', align_corners=True)
+                # Loss function
+                loss = nn.CrossEntropyLoss()(per_frame_logits, labels)
+                # Accumulate loss
+                val_loss += loss.item()
+
+
+                # Calculate accuracy
+                acc = utils.accuracy_v2(torch.argmax(per_frame_logits, dim=1), labels)
+
+                val_acc.append(acc.item())
+
+        # remember best prec@1 and save checkpoint
+        epoc_val_acc = np.mean(val_acc)
+        is_best = epoc_val_acc > best_acc
+        best_acc = max(epoc_val_acc, best_acc)
+        if (is_best):
+            print('Best accuracy achieved, storing the model...')
+            print('Best val_acc: {}'.format(best_acc))
+            model_tmp = copy.deepcopy(model.state_dict())
+            model.load_state_dict(model_tmp)
+            torch.save({"model_state_dict": model.state_dict(),
+                        "optimizer_state_dict": optimizer.state_dict(),
+                        "lr_state_dict": lr_sched.state_dict()}, os.path.join(args.logdir, 'best_classifier.pth'))
+        # Report epoch loss and accuracy
+        writer.add_scalars("Loss", {'train':torch.tensor(round(train_loss/train_num_batch, 3))}, steps)
+        writer.add_scalars("Loss", {'validation':torch.tensor(round(val_loss/test_num_batch, 3))}, steps)
+        writer.add_scalars("Accuracy", {'train':torch.tensor(round(np.mean(train_acc), 3))}, steps)
+
+        writer.add_scalars("Accuracy", {'validation':torch.tensor(round(round(np.mean(val_acc), 3)))}, steps)
+        writer.add_scalars("Accuracy", {'best':torch.tensor(round(round(best_acc, 3)))}, steps)
+        logging.info('-------------Training Epoch Result-------------')
+        print('Loss: {}, Accuracy: {}'.format(round(train_loss/train_num_batch, 3), round(np.mean(train_acc), 3)))
+        print('-------------Validation Epoch Result-------------')
+        print('Loss: {}, Accuracy: {}'.format(round(val_loss/test_num_batch, 3), round(np.mean(val_acc), 3)))
+        # steps += 1
+        print('Update lr scheduler...')
+
+        lr_sched.step()
+    logging.info('--------------------Traing Finished--------------------')
+    print("Best accuracy:", best_acc)
+    writer.close()
 
 
 
@@ -489,6 +573,13 @@ def update_parameters(parser, args):
 
 if __name__ == '__main__':
     logging.basicConfig(level = logging.INFO)
+    print('#############################################')
+    print('#############################################')
+    print('#############################################')
+    print('#############   Training Model  #############')
+    print('#############################################')
+    print('#############################################')
+    print('#############################################')
     parser = init_parser()
     args = parser.parse_args()
     args = update_parameters(parser, args)
@@ -499,4 +590,5 @@ if __name__ == '__main__':
         os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu_idx)  # non-functional
         torch.cuda.set_device(0)
 
+    # need to add argparse
     run(args)

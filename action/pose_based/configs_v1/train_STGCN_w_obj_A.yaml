@@ -30,6 +30,7 @@ model_args:
   graph_args: {'layout': 'openpose', 'strategy': 'spatial'}
   edge_importance_weighting: True
   dropout: 0.5
+  custom_A: True
   
 
 

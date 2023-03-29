@@ -11,7 +11,7 @@ import numpy as np
 import csv
 import cv2
 import open3d as o3d
-
+from tqdm import tqdm
 def numericalSort(value):
     numbers = re.compile(r'(\d+)')
     parts = numbers.split(value)
@@ -65,7 +65,9 @@ def get_3d_object_center(data_2d_tmp, depth_image, rgb_image):
     fy = 540.994
     cx = 320.000
     cy = 240.000
-    height, width = depth_image.shape
+
+    height, width, _ = depth_image.shape
+    
     for object_idx, object_2d in enumerate(data_2d_tmp):
         # object_2d:<bb_left>, <bb_top>, <bb_width>, <bb_height>
         box_width = int(object_2d[2])
@@ -109,19 +111,27 @@ def get_3d_object(data_2d_tmp, depth_image, rgb_image):
     fy = 540.994
     cx = 320.000
     cy = 240.000
-    height, width = depth_image.shape
+    height, width= depth_image.shape
+    # print('test.....',depth_image.shape)
+    # print("Len data_2d_tmp:", len(data_2d_tmp))
     for object_idx, object_2d in enumerate(data_2d_tmp):
+        # <bb_left>, <bb_top>, <bb_width>, <bb_height>
+        object_2d = object_2d['bbox']
+        box_width = object_2d[2] 
+        box_high = object_2d[3] 
+        center_x = object_2d[0] + box_width / 2
+        center_y = object_2d[1] + box_high / 2
 
-        center_x = object_2d['bounding_box']['x'] * width
-        center_y = object_2d['bounding_box']['y'] * height
-        box_width = object_2d['bounding_box']['w'] * width
-        box_high = object_2d['bounding_box']['h'] * height
 
         points = o3d.geometry.PointCloud()
 
-        start_point = int(center_x - box_width / 2), int(center_y - box_high / 2)
-        end_point = int(center_x + box_width / 2), int(center_y + box_high / 2)
-
+        start_point = int(object_2d[0]), int(object_2d[1])
+        end_point = int(object_2d[0] + box_width), int(object_2d[1] + box_high)
+        if end_point[0] > width:
+            end_point[0] = width
+        if end_point[1] > height:
+            end_point[1] = height
+        # print("End point:", end_point)
         for vi in range(start_point[1], end_point[1]):
             for ui in range(start_point[0], end_point[0]):
                 if depth_image[vi, ui] > 0:
@@ -343,217 +353,126 @@ def map2d_skeleton_to3D(skeleton_data_2d, i, depth_images):
     return skeletion_3d_list
 
 
-def skeleton_visulisation(skeleton_3d_position_list):
-    fig = plt.figure(figsize=(4, 4))
-    ax = fig.add_subplot(111, projection='3d')
 
-    X = [1,2,3,4,5,6,7,8]
-    Y = [5, 7, 8, 9, 10, 11, 7, 8]
-    Z = [3,7,3,11,9,2,10,11]
+def get_trans(scan_name, step = 1):
+    depth_video = os.path.join(scan_name, 'dev3', 'depth', 'scan_video.avi')
+    rgb_video = os.path.join(scan_name, 'dev3', 'images', 'scan_video.avi')
 
-    # for i, frame_sk in enumerate(skeleton_3d_position_list):
+    depth = cv2.VideoCapture(depth_video)
+    rgb = cv2.VideoCapture(rgb_video)
+    trans_m = []
+    frame_count = 0
+    os.makedirs(os.path.join(scan_name, 'dev3', 'trans_' + str(step)), exist_ok=True)
+    while True:
+        ret1, frame1 = depth.read()
+        ret2, frame2 = rgb.read()
+        print('Current frame:', frame_count)
+        if not ret1 or not ret2:
+            print('break...')
+            break
+        curr_depth_image = cv2.resize(frame1, (frame2.shape[1], frame2.shape[0]))
+        tmp = curr_depth_image[:, :, 2] + 255.0 * curr_depth_image[:, :, 1]
+        curr_depth_image = tmp
+        curr_rgb_image = frame2
+        obj_path = os.path.join(scan_name, 'dev3', 'seg', str(frame_count)+'.json')
+        curr_data_2d_tmp = json.load(open(obj_path))
+        
 
+        if not frame_count == 0:
+            
+            # print("curr_depth:", curr_depth_image.shape)
+            # print("curr_rgb:", curr_rgb_image.shape)
+            trans_m = calculate_trans(curr_data_2d_tmp, past_data_2d_tmp, curr_depth_image, 
+                                    past_depth_image, curr_rgb_image, past_rgb_image)
+        
+        
 
-    ax.plot(X, Y, Z)  # plot the point (2,3,4) on the figure
-
-    plt.show()
-
-
-
-def get_video_transformation_list(data_dir, subject_id):
-    'Labels Ground Truth'
-    # labels_file_path = "/home/yuankai/state_of_the_art/har/marsil/model-exploration/src/simulation/kit_bimanual/labels/take_0.json"
-    labels_file_path = f"{data_dir}/labels/take_{subject_id}.json"
-    labels_file = open(labels_file_path)
-    labels = json.load(labels_file)
-    labels_file.close()
-
-    original_right_hand_ground_truth_labels = labels['right_hand']
-    original_left_hand_ground_truth_labels = labels['left_hand']
-
-    righthand_ground_truth_labels = extend_labels(original_right_hand_ground_truth_labels)
-    lefthand_ground_truth_labels = extend_labels(original_left_hand_ground_truth_labels)
-
-    """Labels Ground Truth"""
-    """ activity label"""
-    activity_gt_label = "cooking_with_bowls"
-
-    """ right/left hand gt"""
-    # labels_file_path = "/home/yuankai/state_of_the_art/har/marsil/model-exploration/src/simulation/kit_bimanual/labels/take_0.json"
-    labels_file_path = "sample_data/labels/take_0.json"
-
-    "Skeleton position 2d to 3d projection"
-    # skeleton_file_path = "/home/yuankai/state_of_the_art/har/marsil/model-exploration/src/simulation/kit_bimanual/body_pose"
-    skeleton_file_path = f"{data_dir}/body_pose"
-    skeleton_parse_result = parse_dir(skeleton_file_path)
-
-    "Extract depth info"
-    # depth_image_path = "/home/yuankai/datasets/kit_bimanual/bimacs_rgbd_data/subject_1/task_2_k_cooking_with_bowls/take_0/depth"
-    depth_image_path = f"{data_dir}/depth"
-    depth_images_list = []
-    depth_images_parse_result = []
-    for i in range(5):
-        depth_image_path_tmp = depth_image_path + "/chunk_" + str(i)
-        depth_images_parse_result += parse_image(depth_image_path_tmp)
-    depth_images = depth_images_transformation(depth_images_parse_result)
-
-    "'Map 2D skeleton to 3D'"
-    skeleton_3d_position_list = []
-    for i, file in enumerate(skeleton_parse_result):
-        skeleton_data_2d = open(file)
-        skeleton_tmp = json.load(skeleton_data_2d)
-        skeleton_3d_position = map2d_skeleton_to3D(skeleton_tmp, i, depth_images)
-        skeleton_3d_position_list.append(skeleton_3d_position)
-        skeleton_data_2d.close()
-
-    'Object positions'
-    # objects_file_path = "/home/yuankai/state_of_the_art/har/marsil/model-exploration/src/simulation/kit_bimanual/3d_objects"
-    objects_file_path = f"{data_dir}/3d_objects"
-    objects_2d_file_path = f"{data_dir}/2d_objects"
-    object_spatial_relations_list = []
-    video_transformation_list = []
-    object_parse_result = parse_dir(objects_file_path)
-    object_2d_parse_result = parse_dir(objects_2d_file_path)
-
-    "Build the Train Datset"
-    for i, file in enumerate(object_parse_result):
-        file_data = open(file)
-        data_tmp = json.load(file_data)
-        righthand_gt_label = righthand_ground_truth_labels[i]
-        lefthand_gt_label = lefthand_ground_truth_labels[i]
-        dict_tmp = transformation(data_tmp, i, righthand_gt_label, lefthand_gt_label, skeleton_3d_position_list[i])
-        video_transformation_list.append(dict_tmp)
-        file_data.close()
-
-    # print(video_transformation_list)
-    return video_transformation_list
+        trans_path = os.path.join(scan_name, 'dev3', 'trans_' + str(step), str(frame_count)+'.json')
+        # Convert numpy array to list trans_m:[ndarray, ndarray...]
+        for i in range(len(trans_m)):
+            trans_m[i] = trans_m[i].tolist()
+        # print("Number of objects:", len(curr_data_2d_tmp))
+        # print("shape of trans_m:", np.shape(trans_m))
+        # print("Trans M:", trans_m)
+        with open(trans_path, 'w') as f:
+            json.dump(trans_m, f)
 
 
-def read_file(bounding_box_filepath):
-    with open(bounding_box_filepath, 'r') as f:
-        data = json.load(f)
-    # print(data)
-    # print(data.len())
-    # print(type(data))
-    length = len(data)
-    bounding_box_2d = []
 
-    for num in range(0, length):
-        sub_data = data[num]
-        # print(type(sub_data))
-        adds = []
-        adds.append(sub_data['candidates'][0]['class_index'])
-        adds.append(sub_data['bounding_box']['h'])
-        adds.append(sub_data['bounding_box']['w'])
-        adds.append(sub_data['bounding_box']['x'])
-        adds.append(sub_data['bounding_box']['y'])
-        bounding_box_2d.append(adds)
+        # cv2.imshow('Depth and RGB', frame_combined)
+        
+        # if cv2.waitKey(20) & 0xFF == ord('q'):
+        #     break
+        frame_count += 1
+        past_depth_image = curr_depth_image.copy()
+        past_rgb_image = curr_rgb_image.copy()
+        past_data_2d_tmp = curr_data_2d_tmp
+    depth.release()
+    rgb.release()
+    print("{} transformation matrix extracted successfully...".format(scan_name))
 
-    return bounding_box_2d
+        # font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # org
+        # org = (50, 50)
+        
+        # fontScale
+        # fontScale = 1
+        
+        # # Blue color in BGR
+        # color = (255, 0, 0)
+        
+        # Line thickness of 2 px
+        # thickness = 2
 
+        # rgb_size = frame2.shape
 
-def vis_cp(objs_dict_tmp, skeleton_list):
+        # frame1_resized = cv2.resize(frame1, (int(rgb_size[1]/2), int(rgb_size[0]/2)))
+        # frame2_resized = cv2.resize(frame2, (int(rgb_size[1]/2), int(rgb_size[0]/2)))
+        
+        # frame_combined = cv2.vconcat([frame1_resized, frame2_resized])
 
-    FOR1 = o3d.geometry.TriangleMesh.create_coordinate_frame(size=20, origin=[0, 0, 0])
-
-    out_point_pf = o3d.geometry.PointCloud()
-    out_center_pf = o3d.geometry.PointCloud()
-
-    # vis.add_geometry(out_point_pf)
-
-    # add obj-center
-
-    # from 2d
-    out_obj_pf = []
-    # center_list = method_2d23d(jsonPath, rgb_filepath, depth_filepath)
-    obj_pc_list = get_3d_object(curr_data_2d_tmp, curr_depth_image, curr_rgb_image)
-    obj_center_list = get_3d_object_center(curr_data_2d_tmp, curr_depth_image, curr_rgb_image)
-    # print("obj_pc_list:", obj_pc_list)
-
-    for idx, obj in enumerate(obj_center_list):
-        out_center_pf.points.append(obj)
-
-    for idx, obj in enumerate(obj_pc_list):
-        out_obj_pf.append(obj)
-
-    # print("out_center_pf:", np.array(out_center_pf.points))
-    # from 3d
-    # for idx, obj in enumerate(objs_dict_tmp):
-    #     curr_center = obj['current_center']
-    #     # "object_instance": "LeftHand_5"
-    #     # RightHand_4
-    #     if obj['object_instance'] == "LeftHand_5" or obj['object_instance'] == "RightHand_4":
-    #         continue
-    #     out_center_pf.points.append(np.array(curr_center))
-    #     # vis.add_geometry(curr_center)
-    #     # vis.update_geometry(out_point_pf)
-    #     # vis.update_geometry(curr_center)
-    #     # o3d.visualization.draw_geometries([out_point_pf])
-    # # o3d.visualization.draw_geometries([FOR1, out_point_pf])
-    # # o3d.visualization.draw_geometries([out_point_pf])
-    # # out_center_pf.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-
-    # add joint-posi
-    delete_flag = []
-    for idx, joint in enumerate(skeleton_list):
-        X = joint['pixel_x']
-        Y = joint['pixel_y']
-        Z = joint['joint_depth']
-        class_label = joint['joint_class']
-        class_id = POSE_BODY_25_BODY_PARTS['{}'.format(class_label)]
-        if Z == 0:
-            delete_flag.append(idx)
-            # last_pos = out_point_pf.points[-1]
-        #     out_point_pf.points.append(np.array(last_pos))
-        # else:
-        out_point_pf.points.append(np.array([X, Y, Z]))
-        # o3d.visualization.draw_geometries([out_point_pf])
-        # vis.update_geometry(out_point_pf)
-    # o3d.visualization.draw_geometries([FOR1, out_point_pf])
-    out_point_pf.transform([[1, 0, 0, 0], [0, -1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]])
-    # print(numpy.asarray(out_point_pf.points))
-
-    corresponds_1 = [14, 19, 18, 6, 16, 21, 12, 13, 5, 20, 7, 8, 1, 0, 11, 22, 17, 3, 15, 24, 9, 10, 2, 23, 4]
-    corresponds_2 = [[1, 8], [1, 2], [1, 5], [2, 3], [3, 4], [5, 6], [6, 7], [8, 9], [9, 10], [10, 11], [8, 12], [12, 13], [13, 14], [1, 0],
-                     [0, 15], [15, 17], [0, 16], [16, 18], [2, 17], [5, 18], [14, 19], [19, 20], [14, 21], [11, 22], [22, 23], [11, 24]]
-
-    lines = [[12, 11], [12, 22], [12, 8], [22, 17], [17, 24], [8, 3], [3, 10], [11, 20], [20, 21], [21, 14], [11, 6],
-             [6, 7], [7, 0], [12, 13], [13, 18], [18, 16], [13, 4], [4, 2], [22, 16], [8, 2], [0, 1], [1, 9], [0, 5],
-             [14, 15], [15, 23], [14, 19]]
-    # lines_p = copy.deepcopy(lines)
-    for i, flag in enumerate(delete_flag):
-        for j, pair in enumerate(lines):
-            if pair[0] == flag or pair[1] == flag:
-                # lines_p.remove(pair)
-                lines.pop(j)
-        # out_point_pf.points.pop(i)
-        # idx = lines.index(flag)
-        # del lines_p[idx]
-
-    # for i, flag in enumerate(delete_flag):
-    #     out_point_pf.points.pop(i)
-
-    # colors = [[0, 0, 1] for i in range(len(lines))]  # Default blue
-
-    # line between joints
-    line_pcd = o3d.geometry.LineSet()
-    # line_pcd = o3d.geometry.LineSet(
-    #             points=o3d.utility.Vector3dVector(out_point_pf),
-    #             lines=o3d.utility.Vector2iVector(lines))
-    line_pcd.lines = o3d.utility.Vector2iVector(lines)
-    # line_pcd.colors = o3d.Vector3dVector(colors)
-    line_pcd.points = out_point_pf.points
-    # del line_pcd.points[delete_flag]
-    # print("out_point_pf:", np.array(out_point_pf.points))
-
-    # for idx, point in enumerate(out_point_pf.points):
+        # a_str = str(trans_m)
+        # a_str_with_brackets = '[' + a_str[1:-1] + ']'
+        # cv2.putText(frame_combined, a_str_with_brackets, org, font, fontScale, color, thickness, cv2.LINE_AA)
 
 
-    # o3d.visualization.draw_geometries([out_point_pf, line_pcd])
+def matrix_to_quaternion(matrix):
 
-    # vis.poll_events()
-    # vis.update_renderer()
-    return out_point_pf, line_pcd, out_center_pf, out_obj_pf
+    R = matrix[:3, :3]
+    trace = np.trace(R)
+    
+    if trace > 0:
+        s = 0.5 / np.sqrt(trace + 1.0)
+        w = 0.25 / s
+        x = (R[2, 1] - R[1, 2]) * s
+        y = (R[0, 2] - R[2, 0]) * s
+        z = (R[1, 0] - R[0, 1]) * s
+    else:
+        if R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+            s = 2.0 * np.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2])
+            w = (R[2, 1] - R[1, 2]) / s
+            x = 0.25 * s
+            y = (R[0, 1] + R[1, 0]) / s
+            z = (R[0, 2] + R[2, 0]) / s
+        elif R[1, 1] > R[2, 2]:
+            s = 2.0 * np.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2])
+            w = (R[0, 2] - R[2, 0]) / s
+            x = (R[0, 1] + R[1, 0]) / s
+            y = 0.25 * s
+            z = (R[1, 2] + R[2, 1]) / s
+        else:
+            s = 2.0 * np.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1])
+            w = (R[1, 0] - R[0, 1]) / s
+            x = (R[0, 2] + R[2, 0]) / s
+            y = (R[1, 2] + R[2, 1]) / s
+            z = 0.25 * s
+    
+    return np.array([w, x, y, z])
+
+
+
+
 
 
 if __name__ == '__main__':
@@ -561,49 +480,21 @@ if __name__ == '__main__':
     dataset_dir = '/media/zhihao/Chi_SamSungT7/IKEA_ASM'
     env_lists = ['Kallax_Shelf_Drawer', 'Lack_Coffee_Table', 'Lack_Side_Table', 'Lack_TV_Bench']
     dev = 'dev3'
-    env_dir = os.path.join(dataset_dir, env_lists[0])
-    item_list = os.listdir(env_dir)
-    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Lack_Side_Table/0039_white_floor_08_04_2019_08_28_10_40'
+    # env_dir = os.path.join(dataset_dir, env_lists[0])
+    # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Lack_Side_Table/0039_white_floor_08_04_2019_08_28_10_40'
     steps = 1
-    depth_video = os.path.join(scan_name, dev, 'depth', 'scan_video.avi')
-    rgb_video = os.path.join(scan_name, dev, 'images', 'scan_video.avi')
-    # Read video
-
-
-    depth = cv2.VideoCapture(depth_video)
-    rgb = cv2.VideoCapture(rgb_video)
-    trans_m = []
-    frame_count = 0
-    while True:
-        ret1, frame1 = depth.read()
-        ret2, frame2 = rgb.read()
-        
-        curr_depth_image = cv2.resize(frame1, frame2.shape)
-        curr_rgb_image = frame2
+    for env in env_lists:
+        env_dir = os.path.join(dataset_dir, env)
+        item_list = os.listdir(env_dir)
+        for item in tqdm(item_list):
+            scan_name = os.path.join(dataset_dir, env, item)
+            print("Processing dir:", scan_name)
+            # print(scan_name)
+            get_trans(scan_name)
 
 
 
-        if not frame_count == 0
-            trans_m = calculate_trans(curr_data_2d_tmp, past_data_2d_tmp, curr_depth_image, 
-                                    past_depth_image, curr_rgb_image, past_rgb_image)
-        if not ret1 or not ret2:
-            break
-        rgb_size = frame2.shape
 
-        frame1_resized = cv2.resize(frame1, (int(rgb_size[1]/2), int(rgb_size[0]/2)))
-        frame2_resized = cv2.resize(frame2, (int(rgb_size[1]/2), int(rgb_size[0]/2)))
-        
-        frame_combined = cv2.vconcat([frame1_resized, frame2_resized])
-        
-        cv2.imshow('Depth and RGB', frame_combined)
-        
-        if cv2.waitKey(20) & 0xFF == ord('q'):
-            break
-        frame_count += 1
-        past_depth_image = curr_depth_image.copy()
-        past_rgb_image = curr_rgb_image.copy()
-    depth.release()
-    rgb.release()
-    cv2.destroyAllWindows()
+    
 
 

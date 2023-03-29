@@ -1040,7 +1040,7 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
     def __getitem__(self, index):
         # 'Generate one sample of data'
         video_full_path, labels, frame_ind, n_frames_per_clip, vid_idx, frame_pad = self.clip_set[index]
-        
+        # print(frame_ind)
         
         poses = self.load_poses(video_full_path, frame_ind)
         object_data = self.load_obj(video_full_path, frame_ind, poses.size())

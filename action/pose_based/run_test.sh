@@ -21,7 +21,9 @@ CONFIG8="train_DSTA_w_obj"
 CONFIG7_SMALL="small_DSTA_wo_obj"
 CONFIG8_SMALL="small_DSTA_w_obj"
 
-# python3 train_v2.py --config $CONFIG3
+DEMO="demo"
+
+
 python3 test_v3.py --config $CONFIG1
 python3 test_v3.py --config $CONFIG2
 
@@ -33,4 +35,6 @@ python3 test_v3.py --config $CONFIG6
 
 python3 test_v3.py --config $CONFIG7
 python3 test_v3.py --config $CONFIG8
+
+# python3 demo.py --config $DEMO
 #python3 test.py --dataset_path $DATASET_PATH --pose_relative_path $POSE_REL_PATH --batch_size $BATCH_SIZE --frames_per_clip $FRAMES_PER_CLIP --arch $ARCH --model_path $LOGDIR --model 'best_classifier.pth'

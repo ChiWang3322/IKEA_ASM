@@ -24,15 +24,28 @@ class Model(nn.Module):
             :math:`V_{in}` is the number of graph nodes,
             :math:`M_{in}` is the number of instance(person) in a frame.
     """
-    def __init__(self, in_channels, num_class, graph_args, edge_importance_weighting, **kwargs):
+    def __init__(self, in_channels, num_class, graph_args, edge_importance_weighting, custom_A=False, **kwargs):
         super().__init__()
 
         # Load predefined graph/adjacency matrix
 
         self.graph = Graph(**graph_args)
         # Predefined adjacency matrix (3 x V x V, self, inwards, outwars)
-        A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)   
+        if custom_A:
+            A = self.graph.A
+            shape = np.shape(A)
+            tmp = np.zeros((shape[0]+6, shape[1]+6, shape[2]))
+            tmp[:shape[0], :shape[1], :] = A
+            A = tmp
+            A = nn.Parameter(A, dtype=torch.float32, requires_grad=True)
+            print("A size:", A.size())
+            print("A:", A)
+        else:
+            A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)   
+        
         self.register_buffer('A', A) 
+        
+
 
         # Build networks
         spatial_kernel_size = A.size(0) # 3

@@ -12,6 +12,8 @@ class EfficientGCN(nn.Module):
 
         num_input, num_channel, _, _, _ = data_shape
         
+        
+
         # input branches
         self.input_branches = nn.ModuleList([EfficientGCN_Blocks(
             init_channel = stem_channel,
@@ -49,6 +51,7 @@ class EfficientGCN(nn.Module):
 
         # output
         _, C, T, V = x.size()
+        # N, C, T, V, M
         feature = x.view(N, M, C, T, V).permute(0, 2, 3, 4, 1)
         out = self.classifier(feature).view(N, -1)
 

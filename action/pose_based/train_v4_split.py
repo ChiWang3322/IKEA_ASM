@@ -3,7 +3,7 @@
 # train pose based action recognition  methods on IKEA ASM dataset
 
 
-import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging, datetime
+import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging, datetime, shutil
 from yaml.loader import SafeLoader
 from tqdm import tqdm
 
@@ -228,6 +228,9 @@ def run(args):
     # Initialize summary writer with specific logdir
     writer_log = args.logdir.split('/')[2]
     writer_dir = os.path.join('./runs', writer_log + '_split')
+    if os.path.exists(writer_dir):
+        shutil.rmtree(writer_dir)
+        print("Removed existed writer directory......")
     print("Writer dir:", writer_dir)
     writer = SummaryWriter(writer_dir)
 
@@ -487,7 +490,7 @@ def run(args):
 
                 test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
 
-                inputs = Variable(inputs.cuda(), requires_grad=True)
+                inputs = Variable(inputs.cuda(), requires_grad=False)
                 
                 labels = Variable(labels.cuda())
                 labels = torch.argmax(labels, dim=1)

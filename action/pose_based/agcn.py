@@ -155,7 +155,7 @@ class Model(nn.Module):
         else:
             Graph = import_class(graph)
             self.graph = Graph(**graph_args)
-
+        
         A = self.graph.A
         # print('A:', A)
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)

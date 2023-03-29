@@ -1,8 +1,4 @@
-# configs need to be modified when change models
-# Model and args
-# Setting/logdir important!!!!!! otherwise the pretrained model will be covered
-# Dataset/with_obj with or without objects
-# batch_size with objects it will be smaller, without it can be larger
+
 
 # Visualization
 visualize_skeleton: True
@@ -16,27 +12,39 @@ db_filename: ikea_annotation_db_full
 camera: dev3
 pose_relative_path: predictions/pose2d/openpose
 train_filename: train_cross_env.txt
-test_filename: test_cross_env.txt
+test_filename: demo.txt
 with_obj: True
+
+# Setting
+load_mode: img
+input_type: rgb
+logdir: ./log/EGCN_50_w_obj
+
 #Dataloader
 frame_skip: 1
 batch_size: 48
 frames_per_clip: 50
 
 # Model
-arch: STGCN  #architechture
-model_args: 
-  in_channels: 7
-  graph_args: {'layout': 'openpose', 'strategy': 'spatial'}
-  edge_importance_weighting: True
-  dropout: 0.5
-  
+arch: EGCN  #architechture
+model_args:
+  data_shape: [3, 9, 50, 18, 1]
+  stem_channel: 64
+  block_args: [[48,1,0.5],[24,1,0.5],[64,2,1],[128,2,1]]
+  fusion_stage: 2
+  act_type: swish
+  att_type: stja
+  layer_type: SG
+  drop_prob: 0.25
+  kernel_size: [5,2]
+  scale_args: [1.2,1.35]
+  expand_ratio: 2
+  reduct_ratio: 4
+  bias: True
+  edge: True
+  scale_factor: 5
 
 
-# Setting
-load_mode: img
-input_type: rgb
-logdir: ./log/STGCN_50_w_obj
 
 # Optimizer
 # SGD, Adam

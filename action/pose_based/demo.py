@@ -231,7 +231,7 @@ def run(args):
                            frame_skip=args.frame_skip, frames_per_clip=args.frames_per_clip, mode=args.load_mode,
                            pose_path=args.pose_relative_path, arch=args.arch, with_obj=args.with_obj)
 
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, num_workers=8,
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=8,
                                                   pin_memory=True)
     
     # setup the model
@@ -364,7 +364,28 @@ def run(args):
 
 
 
+    def get_feature_intensity(features):
+        """
+        Calculate feature intensity
 
+        Inputs
+        ----------
+        feature : N x C x T x V x M GPU tensor
+
+        Outputs
+        ----------
+        intensity: list
+        """
+        intensity_list = []
+        # Converty GPU tensor to CPU
+        for feature in features:
+            # C, T, V
+            # print("Feature size", feature.size())
+            feature = feature[:, :, :, 0]
+            intensity = (feature*feature).sum(dim=0).sum(dim=0)**0.5
+            intensity = intensity.cpu().detach().numpy().tolist()
+            intensity_list.append(intensity)
+        return intensity_list
     # Initialization
     # Iterate over data.
     avg_acc = []
@@ -375,12 +396,15 @@ def run(args):
     frames_per_clip = args.frames_per_clip
     true = []
     pred = []
+    intensity_list = []
+    # print("test video list........:", test_dataset.video_list)
     # Training phase
     for _, data in enumerate(tqdm(test_dataloader)):
         model.train(False)
         # get the inputs
         skeleton_data, labels, vid_idx, frame_pad, object_data = data
-        
+        # for s in skeleton_data:
+        #     print("s size:", s.size())
         ###################################################################
         test_object_data(object_data, with_obj=args.with_obj)
         test_skeleton_data(skeleton_data)
@@ -398,7 +422,11 @@ def run(args):
 
         # Score and feature(ignored)
         # logits: N x Classes
-        logits,_ = model(inputs)
+        logits, features = model(inputs)
+        # print("Feature size:", features.size())
+        intensity = get_feature_intensity(features)
+        # print("Intensity shape:", intensity)
+        intensity_list.append(intensity)
         # Length
         t = args.frames_per_clip
 
@@ -462,7 +490,8 @@ def run(args):
     print("F1@25%:", f1_25)
     print("F1@50%:", f1_50)
     print("Confusion matrix: Done")
-            
+    # scan_path =  os.path.join('/media/zhihao/Chi_SamSungT7/IKEA_ASM', test_dataset.video_list[0])
+    # np.save(os.path.join(scan_path, 'intensity.npy'), intensity_list)
 
 
         
