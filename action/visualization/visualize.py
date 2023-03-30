@@ -91,6 +91,29 @@ class FunctionSwitcher:
                         img = cv2.line(img, (int(j2d[partA][0]), int(j2d[partA][1])), 
                                             (int(j2d[partB][0]), int(j2d[partB][1])), line_color, 1)
                 # Display the resulting frame
+
+                # Define the text to be written
+                txt = 'Frame:' + str(frame_ind)
+
+                # Define the font
+                font = cv2.FONT_HERSHEY_SIMPLEX
+
+                # Define the position of the text
+                position = (50, 50)
+
+                # Define the font scale
+                fontScale = 1
+
+                # Define the color of the text
+                color = (0, 0, 255)
+
+                # Define the thickness of the text
+                thickness = 2
+
+                # Write the text on the image
+                cv2.putText(img, txt, position, font, fontScale, color, thickness)
+
+
                 
                 cv2.imshow('Frame',img)
             
@@ -243,8 +266,10 @@ if __name__ == '__main__':
     scan_name = None
     env_dir = os.path.join(dataset_dir, env_lists[0])
     item_list = os.listdir(env_dir)
-    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Lack_Side_Table/0039_white_floor_08_04_2019_08_28_10_40'
-    switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, resize_factor=None, context=False)
+    # This is a extreme case
+    # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0040_black_floor_09_04_2019_08_28_13_21'
+    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0040_black_floor_09_04_2019_08_28_13_21'
+    switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, resize_factor=None, context=True)
     switcher.display()
     # for env in env_lists:
     #     env_dir = os.path.join(dataset_dir, env)

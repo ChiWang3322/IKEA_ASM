@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-
+import numpy as np
 from net.utils.graph import Graph
 
 class Model(nn.Module):
@@ -34,16 +34,19 @@ class Model(nn.Module):
         if custom_A:
             A = self.graph.A
             shape = np.shape(A)
-            tmp = np.zeros((shape[0]+6, shape[1]+6, shape[2]))
-            tmp[:shape[0], :shape[1], :] = A
+            # print("Old A shape:", shape)
+            tmp = np.zeros((shape[0], shape[1]+6, shape[2] + 6))
+            tmp[:, :shape[1], :shape[2]] = A
             A = tmp
-            A = nn.Parameter(A, dtype=torch.float32, requires_grad=True)
-            print("A size:", A.size())
-            print("A:", A)
+            A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
+            self.register_parameter("A", A)
+            # print("New A size:", A.size())
+            # print("A:", A[0])
         else:
             A = torch.tensor(self.graph.A, dtype=torch.float32, requires_grad=False)   
         
-        self.register_buffer('A', A) 
+            self.register_buffer('A', A) 
+        
         
 
 

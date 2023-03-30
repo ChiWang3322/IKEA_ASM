@@ -161,3 +161,7 @@ def normalize_undigraph(A):
             Dn[i, i] = Dl[i]**(-0.5)
     DAD = np.dot(np.dot(Dn, A), Dn)
     return DAD
+
+if __name__ == '__main__':
+    g = Graph()
+    print(g.A.shape)

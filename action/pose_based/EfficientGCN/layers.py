@@ -186,7 +186,22 @@ class SpatialGraphConv(nn.Module):
         self.s_kernel_size = max_graph_distance + 1
         # print('s kernel size:', self.s_kernel_size)
         self.gcn = nn.Conv2d(in_channel, out_channel*self.s_kernel_size, 1, bias=bias)
-        self.A = nn.Parameter(torch.from_numpy(A[:self.s_kernel_size].astype(np.float32)), requires_grad=False)
+        # print("Kernel size s:", self.s_kernel_size)
+        # print("Input A:", np.shape(A))
+        if "custom_A" in kwargs:
+            custom_A = kwargs['custom_A']
+            if custom_A:
+                shape = np.shape(A)
+                # print("Old A shape:", shape)
+                tmp = np.zeros((shape[0], shape[1]+6, shape[2] + 6))
+                tmp[:, :shape[1], :shape[2]] = A
+                A = tmp
+                A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
+            self.register_parameter("A", A)
+
+        else:
+            self.A = nn.Parameter(torch.from_numpy(A[:self.s_kernel_size].astype(np.float32)), requires_grad=False)
+        # print("Parameter A:", self.A.size())
         if edge:
             self.edge = nn.Parameter(torch.ones_like(self.A))
         else:

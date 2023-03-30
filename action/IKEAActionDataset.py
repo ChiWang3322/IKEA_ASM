@@ -960,8 +960,9 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
 
                 for i, object_tmp in enumerate(objects): 
                     # C T V M
-                    object_data[0, count, i, 0] = object_tmp['category_id']
-                    object_data[1:, count, i , 0] = object_tmp['bbox']
+                    
+                    object_data[:4, count, i , 0] = object_tmp['bbox']
+                    object_data[-1, count, i, 0] = object_tmp['category_id']
 
         else:
             object_data = 0

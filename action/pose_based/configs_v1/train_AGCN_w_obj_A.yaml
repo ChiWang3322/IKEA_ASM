@@ -1,5 +1,5 @@
 # configs need to be modified when change models
-# Model and args
+# Model
 # Setting/logdir important!!!!!! otherwise the pretrained model will be covered
 # Dataset/with_obj with or without objects
 # batch_size with objects it will be smaller, without it can be larger
@@ -8,7 +8,10 @@
 visualize_skeleton: True
 visualize_obj: False
 visualize_rgb: False
-
+# Setting
+load_mode: img
+input_type: rgb
+logdir: ./log/AGCN_50_w_obj_A
 # Dataset
 dataset_path: /media/zhihao/Chi_SamSungT7/IKEA_ASM/
 obj_path: seg
@@ -20,24 +23,21 @@ test_filename: test_cross_env.txt
 with_obj: True
 #Dataloader
 frame_skip: 1
-batch_size: 48
+batch_size: 64
 frames_per_clip: 50
 
 # Model
-arch: STGCN  #architechture
+arch: AGCN  #architechture
 model_args: 
+  num_point: 24
+  num_person: 1
+  graph: 'graph.kinetics.Graph'
+  graph_args: {'labeling_mode':'spatial'}
   in_channels: 5
-  graph_args: {'layout': 'openpose', 'strategy': 'spatial'}
-  edge_importance_weighting: True
-  dropout: 0.2
   custom_A: True
-  
 
 
-# Setting
-load_mode: img
-input_type: rgb
-logdir: ./log/STGCN_50_w_obj_A
+
 
 # Optimizer
 # SGD, Adam

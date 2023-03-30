@@ -56,16 +56,27 @@ class unit_tcn(nn.Module):
 
 
 class unit_gcn(nn.Module):
-    def __init__(self, in_channels, out_channels, A, coff_embedding=4, num_subset=3):
+    def __init__(self, in_channels, out_channels, A, coff_embedding=4, num_subset=3, custom_A=False):
         super(unit_gcn, self).__init__()
         inter_channels = out_channels // coff_embedding
+        # print("Custom A:", custom_A)
+        if custom_A:
+            shape = np.shape(A)
+            # print("Old A shape:", shape)
+            tmp = np.zeros((shape[0], shape[1]+6, shape[2] + 6))
+            tmp[:, :shape[1], :shape[2]] = A
+            A = tmp
+            A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
+            self.register_parameter("A", A)
+        else:
+            self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
         # print("inter channels:",inter_channels)
         self.inter_c = inter_channels
         # Bk in the paper
-        self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
+        self.PA = nn.Parameter(torch.from_numpy(A.detach().numpy().astype(np.float32)))
         nn.init.constant_(self.PA, 1e-6)
         # Ak in the paper
-        self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+
         self.num_subset = num_subset
 
         self.conv_a = nn.ModuleList()
@@ -126,9 +137,9 @@ class unit_gcn(nn.Module):
 
 
 class TCN_GCN_unit(nn.Module):
-    def __init__(self, in_channels, out_channels, A, stride=1, residual=True):
+    def __init__(self, in_channels, out_channels, A, stride=1, residual=True, custom_A=False):
         super(TCN_GCN_unit, self).__init__()
-        self.gcn1 = unit_gcn(in_channels, out_channels, A)
+        self.gcn1 = unit_gcn(in_channels, out_channels, A, custom_A=custom_A)
         self.tcn1 = unit_tcn(out_channels, out_channels, stride=stride)
         self.relu = nn.ReLU()
         if not residual:
@@ -147,7 +158,7 @@ class TCN_GCN_unit(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, num_class=60, num_point=18, num_person=1, graph=None, graph_args=dict(), in_channels=2):
+    def __init__(self, num_class=60, num_point=18, num_person=1, graph=None, graph_args=dict(), in_channels=2, custom_A=False, **kargs):
         super(Model, self).__init__()
 
         if graph is None:
@@ -160,16 +171,16 @@ class Model(nn.Module):
         # print('A:', A)
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
         # print("Parameter of bn:", num_person * in_channels * num_point)
-        self.l1 = TCN_GCN_unit(in_channels, 64, A, residual=False)
-        self.l2 = TCN_GCN_unit(64, 64, A)
-        self.l3 = TCN_GCN_unit(64, 64, A)
-        self.l4 = TCN_GCN_unit(64, 64, A)
-        self.l5 = TCN_GCN_unit(64, 128, A, stride=2)
-        self.l6 = TCN_GCN_unit(128, 128, A)
-        self.l7 = TCN_GCN_unit(128, 128, A)
-        self.l8 = TCN_GCN_unit(128, 256, A, stride=2)
-        self.l9 = TCN_GCN_unit(256, 256, A)
-        self.l10 = TCN_GCN_unit(256, 256, A)
+        self.l1 = TCN_GCN_unit(in_channels, 64, A, residual=False, custom_A=custom_A)
+        self.l2 = TCN_GCN_unit(64, 64, A, custom_A=custom_A)
+        self.l3 = TCN_GCN_unit(64, 64, A, custom_A=custom_A)
+        self.l4 = TCN_GCN_unit(64, 64, A, custom_A=custom_A)
+        self.l5 = TCN_GCN_unit(64, 128, A, custom_A=custom_A, stride=2 )
+        self.l6 = TCN_GCN_unit(128, 128, A, custom_A=custom_A)
+        self.l7 = TCN_GCN_unit(128, 128, A, custom_A=custom_A)
+        self.l8 = TCN_GCN_unit(128, 256, A, stride=2, custom_A=custom_A)
+        self.l9 = TCN_GCN_unit(256, 256, A, custom_A=custom_A)
+        self.l10 = TCN_GCN_unit(256, 256, A, custom_A=custom_A)
 
         self.fc = nn.Linear(256, num_class)
         nn.init.normal_(self.fc.weight, 0, math.sqrt(2. / num_class))

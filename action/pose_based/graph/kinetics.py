@@ -38,7 +38,7 @@ neighbor = inward + outward
 class Graph:
     def __init__(self, labeling_mode='spatial'):
         self.A = self.get_adjacency_matrix(labeling_mode)
-        print("shape of A:", np.shape(self.A))
+        # print("shape of A:", np.shape(self.A))
         print("A pattern: self link, inward, outward")
         self.num_node = num_node
         self.self_link = self_link

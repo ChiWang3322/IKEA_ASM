@@ -219,6 +219,41 @@ def import_class(name):
     for comp in components[1:]:
         mod = getattr(mod, comp)
     return mod
+def stack_inputs(skeleton_data, obj_data):
+    """
+    A function stack skeleton data and object data to generate new inputs
+
+    Inputs
+    ----------
+    skeleton_data : N x C_s x T x V x M tensor
+        N batch size, C number of channels, T number of frames, V number of joints
+    obj_data: N x C_o x T x V x M tensor
+        C_o number of channels of obj_data(bbox, cat), V_o(number of objects)
+    Outputs
+    ----------
+    inputs: N x C_o x T x (V + V_o) x M tensor
+    """
+    # Skeleton data -> N x C_o x T x V x M
+    N, C_s, T, V, M = skeleton_data.size()
+    _, C_o, _, V, _ = obj_data.size()
+    # print("old skeleton_data size:", skeleton_data.size())
+    # print("old obj_data size:", obj_data.size())
+    temp = obj_data[:, :, :, :6, :]
+    
+    obj_data = temp
+    # print("obj_data:", obj_data[0, :, 0, 3, 0])
+    # print("new obj_data size:", obj_data.size())
+    zeros = torch.zeros((N, C_o- C_s, T, V, M))
+    # N x C_o x T x V x M
+    skeleton_data = torch.cat([skeleton_data, zeros], dim=1)
+    skeleton_data[:, 2:4, :, :, :] = skeleton_data[:, :2, :, :, :]
+    skeleton_data[:, 4, :, :, :] = -1
+    # print("new skeleton data:", skeleton_data[0, :, 0, 0, 0])
+    inputs = torch.cat([skeleton_data, obj_data], dim=3)
+    # print("New skeleton_data size:", skeleton_data.size())
+    # print("cat Inputs size:", inputs.size())
+    return inputs
+
 
 def run(args):
 
@@ -386,10 +421,10 @@ def run(args):
         test_skeleton_data(skeleton_data)
         ###################################################################
 
-        inputs = process_skeleton_data(arch, skeleton_data, object_data, args.with_obj)
-
+        inputs = stack_inputs(skeleton_data, object_data)
+        
         ###################################################################
-        test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
+        # test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
         ###################################################################
 
         inputs = Variable(inputs.cuda(), requires_grad=True)
@@ -462,8 +497,20 @@ def run(args):
     print("F1@25%:", f1_25)
     print("F1@50%:", f1_50)
     print("Confusion matrix: Done")
-            
+    # Write test report
+    text_path = './log/results/all_append_wo_q.txt'
 
+    with open(text_path, 'a') as f:
+    # Write the text to the file
+        f.write('---------------------------------\n')
+        f.write('Model:'+ args.arch + '\n')
+        f.write('With Object:'+ str(args.with_obj) + '\n')
+        f.write('Acc:'+ str(round(np.mean(avg_acc), 2)) + '\n')
+        f.write('Acc(concat):'+ str(round(concat_acc, 2)) + '\n')
+        f.write('F1@10:'+ str(round(f1_10, 2)) + '\n')
+        f.write('F1@25:'+ str(round(f1_25, 2)) + '\n')
+        f.write('F1@50:'+ str(round(f1_50, 2)) + '\n')
+        f.write('---------------------------------\n')
 
         
 

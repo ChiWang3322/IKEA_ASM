@@ -366,9 +366,13 @@ def get_trans(scan_name, step = 1):
     while True:
         ret1, frame1 = depth.read()
         ret2, frame2 = rgb.read()
-        print('Current frame:', frame_count)
+        # print('Current frame:', frame_count)
         if not ret1 or not ret2:
             print('break...')
+            break
+        num_frames = int(rgb.get(cv2.CAP_PROP_FRAME_COUNT))
+        trans_list = os.listdir(os.path.join(scan_name, 'dev3', 'trans_' + str(step)))
+        if len(trans_list) == num_frames:
             break
         curr_depth_image = cv2.resize(frame1, (frame2.shape[1], frame2.shape[0]))
         tmp = curr_depth_image[:, :, 2] + 255.0 * curr_depth_image[:, :, 1]
@@ -382,8 +386,12 @@ def get_trans(scan_name, step = 1):
             
             # print("curr_depth:", curr_depth_image.shape)
             # print("curr_rgb:", curr_rgb_image.shape)
-            trans_m = calculate_trans(curr_data_2d_tmp, past_data_2d_tmp, curr_depth_image, 
-                                    past_depth_image, curr_rgb_image, past_rgb_image)
+            try:
+                trans_m = calculate_trans(curr_data_2d_tmp, past_data_2d_tmp, curr_depth_image, 
+                                        past_depth_image, curr_rgb_image, past_rgb_image)
+            except:
+                print("Encounter error at frame{}, but continue...".format(frame_count))
+                continue
         
         
 
@@ -409,7 +417,7 @@ def get_trans(scan_name, step = 1):
         past_data_2d_tmp = curr_data_2d_tmp
     depth.release()
     rgb.release()
-    print("{} transformation matrix extracted successfully...".format(scan_name))
+    # print("{} transformation matrix extracted successfully...".format(scan_name))
 
         # font = cv2.FONT_HERSHEY_SIMPLEX
         
