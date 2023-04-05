@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.autograd import Variable
 from torchviz import make_dot
+import torch.optim.lr_scheduler as lr_scheduler
 
 import st_gcn, agcn, st2ransformer_dsta
 from EfficientGCN.nets import EfficientGCN as EGCN
@@ -416,6 +417,7 @@ def run(args):
     # setup the model
     arch = args.arch
     num_classes = train_dataset.num_classes
+
     model_args = args.model_args
 
     logging.info("----------------------Dataset INFO----------------------")
@@ -429,11 +431,11 @@ def run(args):
     print("Object Included:{}".format(args.with_obj))
 
     
-    def print_model_parameters(model):
-        print("Trainable parameters...............")
-        for name, param in model.named_parameters():
-            if param.requires_grad:
-                print(name, param.shape)
+    # def print_model_parameters(model):
+    #     print("Trainable parameters...............")
+    #     for name, param in model.named_parameters():
+    #         if param.requires_grad:
+    #             print(name, param.shape)
 
 
     def test_skeleton_data(skeleton_data):
@@ -467,10 +469,20 @@ def run(args):
     optim_args = args.optimizer_args
     optim_type = args.optimizer
     opt_args = optim_args[optim_type]
-    optimizer = optim.Adam(model.parameters(), **opt_args)
-
+    if optim_type == 'Adam':
+        optimizer = optim.Adam(model.parameters(), **opt_args)
+    elif optim_type == 'SGD':
+        optimizer = optim.SGD(model.parameters(), **opt_args)
     # Init learning rate scheduler
-    lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, **(args.scheduler_args['MultiStepLR']))
+
+    warmup_epochs = 30
+    warmup_scheduler = lr_scheduler.LinearLR(optimizer, optim_args[optim_type]['lr'] / warmup_epochs, total_iters = warmup_epochs)
+
+    decay_epochs = 10
+    decay_factor = 0.5
+    decay_scheduler = lr_scheduler.StepLR(optimizer, step_size=decay_epochs, gamma=decay_factor)
+
+    # lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, **(args.scheduler_args['MultiStepLR']))
 
 
     # Print Optimizer INFO
@@ -503,8 +515,12 @@ def run(args):
     for steps in range(max_steps):
         # Log info
         logging.info("-------------------Training model-------------------")
-        print('Step {}/{}, Learning rate:{}'.format(steps, max_steps, lr_sched.get_last_lr()))
-        writer.add_scalar("Current lr", torch.tensor(lr_sched.get_last_lr()), steps)
+        if steps < warmup_epochs:
+            curr_lr = warmup_scheduler.get_last_lr()
+        else:
+            curr_lr = decay_scheduler.get_last_lr()
+        print('Step {}/{}, Learning rate:{}'.format(steps, max_steps, curr_lr))
+        writer.add_scalar("Current lr", torch.tensor(curr_lr), steps)
         # Initialization
         train_loss = 0.0
         num_iter = 0
@@ -564,6 +580,10 @@ def run(args):
             # Update weights 
             optimizer.step()
             optimizer.zero_grad()
+            if steps < warmup_epochs:
+                warmup_scheduler.step()
+            else:
+                decay_scheduler.step()
 
         # Evaluation Phase
         logging.info('-------------------Evaluating model-------------------')
@@ -612,8 +632,7 @@ def run(args):
             model_tmp = copy.deepcopy(model.state_dict())
             model.load_state_dict(model_tmp)
             torch.save({"model_state_dict": model.state_dict(),
-                        "optimizer_state_dict": optimizer.state_dict(),
-                        "lr_state_dict": lr_sched.state_dict()}, os.path.join(args.logdir, 'best_classifier.pth'))
+                        "optimizer_state_dict": optimizer.state_dict()}, os.path.join(args.logdir, 'best_classifier.pth'))
         # Report epoch loss and accuracy
         writer.add_scalars("Loss", {'train':torch.tensor(round(train_loss/train_num_batch, 3))}, steps)
         writer.add_scalars("Loss", {'validation':torch.tensor(round(val_loss/test_num_batch, 3))}, steps)
@@ -628,7 +647,7 @@ def run(args):
         # steps += 1
         print('Update lr scheduler...')
 
-        lr_sched.step()
+
     logging.info('--------------------Traing Finished--------------------')
     print("Best accuracy:", best_acc)
     writer.close()

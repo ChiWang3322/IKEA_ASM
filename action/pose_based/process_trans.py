@@ -12,6 +12,8 @@ import csv
 import cv2
 import open3d as o3d
 from tqdm import tqdm
+import shutil
+
 def numericalSort(value):
     numbers = re.compile(r'(\d+)')
     parts = numbers.split(value)
@@ -357,53 +359,86 @@ def map2d_skeleton_to3D(skeleton_data_2d, i, depth_images):
 def get_trans(scan_name, step = 1):
     depth_video = os.path.join(scan_name, 'dev3', 'depth', 'scan_video.avi')
     rgb_video = os.path.join(scan_name, 'dev3', 'images', 'scan_video.avi')
-
+    error_text_path = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/trans_error_file.txt'
+    error_flag = False
+    print(rgb_video)
+    print(depth_video)
     depth = cv2.VideoCapture(depth_video)
     rgb = cv2.VideoCapture(rgb_video)
     trans_m = []
     frame_count = 0
+    if os.path.exists(os.path.join(scan_name, 'dev3', 'trans_' + str(step))):
+        shutil.rmtree(os.path.join(scan_name, 'dev3', 'trans_' + str(step)))
     os.makedirs(os.path.join(scan_name, 'dev3', 'trans_' + str(step)), exist_ok=True)
-    while True:
+    while depth.isOpened() and rgb.isOpened():
+        # print("Current frame:", frame_count)
         ret1, frame1 = depth.read()
         ret2, frame2 = rgb.read()
+        trans_path = os.path.join(scan_name, 'dev3', 'trans_' + str(step), str(frame_count)+'.json')
         # print('Current frame:', frame_count)
         if not ret1 or not ret2:
-            print('break...')
+            print(ret1)
+            print(ret2)
+            print('Not ret1 or not ret2, break...')
             break
-        num_frames = int(rgb.get(cv2.CAP_PROP_FRAME_COUNT))
-        trans_list = os.listdir(os.path.join(scan_name, 'dev3', 'trans_' + str(step)))
-        if len(trans_list) == num_frames:
-            break
+
+        # Check if this folder has been processed
+        # num_frames = int(rgb.get(cv2.CAP_PROP_FRAME_COUNT))
+        # trans_list = os.listdir(os.path.join(scan_name, 'dev3', 'trans_' + str(step)))
+        # if len(trans_list) == num_frames:
+        #     break
+        # Check if this frame has been processed
+
+        # if os.path.exists(trans_path):
+        #     frame_count += 1
+        #     continue
         curr_depth_image = cv2.resize(frame1, (frame2.shape[1], frame2.shape[0]))
+        # Load as gray image
         tmp = curr_depth_image[:, :, 2] + 255.0 * curr_depth_image[:, :, 1]
         curr_depth_image = tmp
         curr_rgb_image = frame2
         obj_path = os.path.join(scan_name, 'dev3', 'seg', str(frame_count)+'.json')
         curr_data_2d_tmp = json.load(open(obj_path))
+
+        if frame_count % step != 0:
+            frame_count += 1
+            continue
+
+        # Store the past data
         
+
 
         if not frame_count == 0:
             
             # print("curr_depth:", curr_depth_image.shape)
             # print("curr_rgb:", curr_rgb_image.shape)
+            print("Processing registration between frame {} and frame {}".format(frame_count, frame_count - step))
             try:
                 trans_m = calculate_trans(curr_data_2d_tmp, past_data_2d_tmp, curr_depth_image, 
                                         past_depth_image, curr_rgb_image, past_rgb_image)
+
             except:
                 print("Encounter error at frame{}, but continue...".format(frame_count))
-                continue
-        
-        
+                error_flag = True
+                break
 
-        trans_path = os.path.join(scan_name, 'dev3', 'trans_' + str(step), str(frame_count)+'.json')
+        frame_count += 1
+        past_depth_image = curr_depth_image.copy()
+        past_rgb_image = curr_rgb_image.copy()
+        past_data_2d_tmp = curr_data_2d_tmp
+
+
+        print("Number of objects:", len(curr_data_2d_tmp))
+        print("shape of trans_m:", np.shape(trans_m))
+        print("Trans M:", trans_m)
         # Convert numpy array to list trans_m:[ndarray, ndarray...]
         for i in range(len(trans_m)):
             trans_m[i] = trans_m[i].tolist()
-        # print("Number of objects:", len(curr_data_2d_tmp))
-        # print("shape of trans_m:", np.shape(trans_m))
-        # print("Trans M:", trans_m)
+
         with open(trans_path, 'w') as f:
             json.dump(trans_m, f)
+        
+
 
 
 
@@ -411,12 +446,14 @@ def get_trans(scan_name, step = 1):
         
         # if cv2.waitKey(20) & 0xFF == ord('q'):
         #     break
-        frame_count += 1
-        past_depth_image = curr_depth_image.copy()
-        past_rgb_image = curr_rgb_image.copy()
-        past_data_2d_tmp = curr_data_2d_tmp
+
     depth.release()
     rgb.release()
+    if error_flag:
+        with open(error_text_path, 'a') as f:
+            # Write the text to the file
+            f.write(scan_name + '\n')
+        
     # print("{} transformation matrix extracted successfully...".format(scan_name))
 
         # font = cv2.FONT_HERSHEY_SIMPLEX
@@ -490,7 +527,7 @@ if __name__ == '__main__':
     dev = 'dev3'
     # env_dir = os.path.join(dataset_dir, env_lists[0])
     # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Lack_Side_Table/0039_white_floor_08_04_2019_08_28_10_40'
-    steps = 1
+    step = 100
     for env in env_lists:
         env_dir = os.path.join(dataset_dir, env)
         item_list = os.listdir(env_dir)
@@ -498,7 +535,7 @@ if __name__ == '__main__':
             scan_name = os.path.join(dataset_dir, env, item)
             print("Processing dir:", scan_name)
             # print(scan_name)
-            get_trans(scan_name)
+            get_trans(scan_name, step = step)
 
 
 

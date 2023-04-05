@@ -413,8 +413,7 @@ def get_pose_colors(mode='rgb'):
         raise ValueError('Invalid color mode, please specify rgb or bgr')
 
 
-def accume_per_video_predictions(vid_idx, frame_pad, pred_labels_per_video, logits_per_video, pred_labels,
-                                 logits, frames_per_clip):
+def accume_per_video_predictions(vid_idx, frame_pad, pred_labels_per_video, pred_labels, frames_per_clip):
     """
     This is a helper function to accumulate the predictions of teh different batches into a single list
     containing the predictions for each video separately. It is used in all of the test files except the frame based
@@ -444,9 +443,9 @@ def accume_per_video_predictions(vid_idx, frame_pad, pred_labels_per_video, logi
             pred_labels_per_video[batch_vid_idx] = pred_labels_per_video[batch_vid_idx][0:-batch_frame_pad]
 
 
-        logits_per_video[batch_vid_idx].extend(logits[i*frames_per_clip:(i+1)*frames_per_clip])
-        if not batch_frame_pad == 0:
-            logits_per_video[batch_vid_idx] = logits_per_video[batch_vid_idx][0:-batch_frame_pad]
+        # logits_per_video[batch_vid_idx].extend(logits[i*frames_per_clip:(i+1)*frames_per_clip])
+        # if not batch_frame_pad == 0:
+        #     logits_per_video[batch_vid_idx] = logits_per_video[batch_vid_idx][0:-batch_frame_pad]
 
-    return pred_labels_per_video, logits_per_video
+    return pred_labels_per_video
 

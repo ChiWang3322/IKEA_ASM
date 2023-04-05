@@ -38,21 +38,21 @@ CONFIG8_SMALL="small_DSTA_w_obj"
 
 
 
-# Train
-# STGCN
+# # Train
+# # STGCN
 # python3 train_v4_split.py --config $CONFIG1
 # python3 train_v4_split.py --config $CONFIG2
 # # EGCN
 # python3 train_v4_split.py --config $CONFIG3
 # python3 train_v4_split.py --config $CONFIG4
 
-# # AGCN
-# python3 train_v4_split.py --config $CONFIG5
-# python3 train_v4_split.py --config $CONFIG6
+# AGCN
+python3 train_v4_split.py --config $CONFIG5
+python3 train_v4_split.py --config $CONFIG6
 # # DSTA
 # python3 train_v4_split.py --config $CONFIG7
 # python3 train_v4_split.py --config $CONFIG8
 
 # Train Customized A
-python3 train_v5_A.py --config train_STGCN_w_obj_A
-python3 train_v5_A.py --config train_AGCN_w_obj_A
+# python3 train_v5_A.py --config train_STGCN_w_obj_A
+# python3 train_v5_A.py --config train_EGCN_w_obj_A

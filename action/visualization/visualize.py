@@ -8,29 +8,168 @@ import random
 import sys
 sys.path.append('../')
 import utils
-
+import sqlite3
 #TODO implement adjust depth to rgb image size
 
 class FunctionSwitcher:
 
-    def __init__(self, scan_path, output_path=None, modality='dev3', resize_factor=None, context = True):
+    def __init__(self, scan_path, output_path=None, modality='dev3', resize_factor=None, context = True, 
+                dataset_dir = '/media/zhihao/Chi_SamSungT7/IKEA_ASM', db_filename='ikea_annotation_db_full',
+                action_list_filename='atomic_action_list.txt', action_object_relation_filename='action_object_relation_list.txt',
+                video_index=0):
+        self.video_index = video_index
         self.scan_path = scan_path
         self.output_path = output_path
         # os.makedirs(output_path, exist_ok=True)
         self.modality = modality
+        self.device = modality
         # self.name_mapping_dict = name_mapping_dict
         self.resize_factor = resize_factor
         self.file_idx = 0
         self.context = context
+        self.dataset_dir = dataset_dir
+        # Connect database file
+        self.db_file = os.path.join(dataset_dir, db_filename)
+        self.db = sqlite3.connect(self.db_file)
+        self.db.row_factory = sqlite3.Row
+        self.cursor_vid = self.db.cursor()
+        self.cursor_annotations = self.db.cursor()
+        # Load action list file
+        self.action_list_filename = os.path.join(dataset_dir, 'indexing_files', action_list_filename)
+        self.action_object_relation_filename = os.path.join(dataset_dir, 'indexing_files', action_object_relation_filename)
+        
+        # load action list and object relation list and sort them together
+        self.action_list = self.get_list_from_file(self.action_list_filename)
+        self.ao_list = self.get_action_object_relation_list()
+
+        self.ao_list = [x for _, x in sorted(zip(self.action_list, self.ao_list))]
+        self.action_list.sort()
+        self.action_list.insert(0, "NA")  #  0 label for unlabled frames
+        print(self.action_list)
+        # print(self.ao_list)
+        self.num_classes = len(self.action_list)
+    def get_label(self):
+        # print("This is a test function")
+        # table = self.get_annotated_videos_table(device='dev3')
+        # print(table)
+        # for row in table:
+        #     video_path = row['video_path']
+        #     print(video_path)
+        video_path = os.path.join(self.scan_path.split('/')[-2], self.scan_path.split('/')[-1], self.device, 'images')
+
+        self.vid_id = self.get_video_id_from_video_path(video_path=video_path)
+        # print(vid_id)
+        
+        annotation_table = self.get_video_annotations_table(video_idx=self.vid_id).fetchall()
+        video_info = self.get_video_table(self.vid_id).fetchone()
+        n_frames = video_info["nframes"]
+        # print(self.num_classes)
+        label = np.zeros((self.num_classes, n_frames), np.float32) # allow multi-class representation
+            
+        label[0, :] = np.ones((1, n_frames), np.float32)   # initialize all frames as background|transition
+        # print(n_frames)
+        for ann_row in annotation_table:
+            # print(ann_row)
+            # print('id:',ann_row['id'])
+            # print('video_id:',ann_row['video_id'])
+            # print('atomic_action_id:',ann_row['atomic_action_id'])
+            # print('action_counter:',ann_row['action_counter'])
+            # print('description:',ann_row['action_description'])
+            # print('object_id:',ann_row['object_id'])
+            # print('object_name:',ann_row['object_name'])
+            # print('start:',ann_row['starting_frame'])
+            # print('ending:',ann_row['ending_frame'])
+            # print('-----------------------------')
+            atomic_action_id = ann_row["atomic_action_id"]  # map the labels
+            object_id = ann_row["object_id"]
+            action_id = self.get_action_id(atomic_action_id, object_id)
+            end_frame = ann_row['ending_frame'] if ann_row['ending_frame'] < n_frames else n_frames
+            if action_id is not None:
+                label[:, ann_row['starting_frame']:end_frame] = 0  # remove the background label
+                label[action_id, ann_row['starting_frame']:end_frame] = 1
+        self.label = np.argmax(label, axis = 0)
+
+
+    def get_list_from_file(self, filename):
+        """
+        retrieve a list of lines from a .txt file
+        :param :
+        :return: list of atomic actions
+        """
+        with open(filename) as f:
+            line_list = f.read().splitlines()
+        # line_list.sort()
+        return line_list
+    def get_action_object_relation_list(self):
+        # read the action-object relation list file and return a list of integers
+        with open(self.action_object_relation_filename, 'r') as file:
+            a_o_relation_list = file.readlines()
+            a_o_relation_list = [x.rstrip('\n').split() for x in a_o_relation_list]
+            a_o_relation_list = [[int(y) for y in x] for x in a_o_relation_list]
+        return a_o_relation_list
+    def get_action_id(self, atomic_action_id, object_id):
+        """
+        find the action id of an atomic action-object pair, returns None if not in the set
+        :param action_id: int id of atomic action
+        :param object_id: int id of object
+        :return: int compound action id | None if not in set
+        """
+        idx = None
+        for i, ao_pair in enumerate(self.ao_list):
+            if ao_pair[0] == atomic_action_id and ao_pair[1] == object_id:
+                idx = i + 1  # +1 to allow the NA first action label
+                break
+        return idx
+
+    def get_video_annotations_table(self, video_idx):
+        """
+        fetch the annotation table of a specific video
+        :param :  video_idx: index of the desired video
+        :return: video annotations table
+        """
+        return self.cursor_annotations.execute('''SELECT * FROM annotations WHERE video_id = ?''', (video_idx,))
+
+    def get_video_id_from_video_path(self, video_path, device='dev3'):
+        """
+        return video id for a given video path
+        :param video_path: path to video (including device and image dir)
+        :return: video_id: id of the video
+        """
+        # print(video_path)
+        rows = self.cursor_vid.execute('''SELECT * FROM videos WHERE video_path = ? AND camera = ?''',
+                                (video_path, device)).fetchall()
+        # print(rows)
+        if len(rows) > 1:
+            raise ValueError("more than one video with the desired specs - check database")
+        else:
+            output = rows[0]["id"]
+        return output
+
+    def get_video_table(self, video_idx):
+        """
+        fetch the video information row from the video table in the database
+        :param :  video_idx: index of the desired video
+        :return: video information table row from the databse
+        """
+        return self.cursor_annotations.execute('''SELECT * FROM videos WHERE id = ?''', (video_idx,))
+    
+    
+
 
     def change_video(self, video_path):
         self.scan_path = video_path
     def display(self):
         """Load RGB data"""
+        # True label
+        data = np.load('../pose_based/log/EGCN_50_w_obj/true.npz')
+        true = [data[key] for key in data.keys()][self.video_index]
+        # Prediction
+        data = np.load('../pose_based/log/EGCN_50_w_obj/prediction.npz')
+        pred = [data[key] for key in data.keys()][self.video_index]
 
         video_path = os.path.join(self.scan_path, self.modality, 'images', 'scan_video.avi')
         cap = cv2.VideoCapture(video_path)
-        
+        self.get_label()
         # Check if camera opened successfully
         if (cap.isOpened()== False): 
             print("Error opening video stream or file")
@@ -93,8 +232,9 @@ class FunctionSwitcher:
                 # Display the resulting frame
 
                 # Define the text to be written
-                txt = 'Frame:' + str(frame_ind)
-
+                txt = 'Action: ' + self.action_list[self.label[frame_ind]]
+                true_txt = 'True: ' + self.action_list[true[frame_ind]]
+                pred_txt = 'Pred: ' + self.action_list[pred[frame_ind]]
                 # Define the font
                 font = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -111,14 +251,14 @@ class FunctionSwitcher:
                 thickness = 2
 
                 # Write the text on the image
-                cv2.putText(img, txt, position, font, fontScale, color, thickness)
-
-
+                cv2.putText(img, txt, position, font, fontScale, (255,0,0), thickness)
+                cv2.putText(img, true_txt, (position[0], position[1] + 50), font, fontScale, (0, 255, 0), thickness)
+                cv2.putText(img, pred_txt, (position[0], position[1] + 100), font, fontScale, color, thickness)
                 
                 cv2.imshow('Frame',img)
             
                 # Press Q on keyboard to  exit
-                if cv2.waitKey(20) == ord('q'):
+                if cv2.waitKey(60) == ord('q'):
                     break
                 frame_ind += 1
             # Break the loop
@@ -257,20 +397,39 @@ class FunctionSwitcher:
         mean_distance = np.mean(distances)
 
         return mean_distance
-
+def get_list_from_file(filename):
+    """
+    retrieve a list of lines from a .txt file
+    :param :
+    :return: list of atomic actions
+    """
+    with open(filename) as f:
+        line_list = f.read().splitlines()
+    # line_list.sort()
+    return line_list
 
 if __name__ == '__main__':
     dataset_dir = '/media/zhihao/Chi_SamSungT7/IKEA_ASM'
+    db_file = os.path.join(dataset_dir, 'ikea_annotation_db_full')
     env_lists = ['Kallax_Shelf_Drawer', 'Lack_Coffee_Table', 'Lack_Side_Table', 'Lack_TV_Bench']
     dev = 'dev3'
+    test_filename = os.path.join(dataset_dir,'indexing_files', 'test_cross_env.txt')
+    testset_video_list = get_list_from_file(test_filename)
+    # print(testset_video_list)
     scan_name = None
+    video_index = 40
     env_dir = os.path.join(dataset_dir, env_lists[0])
     item_list = os.listdir(env_dir)
     # This is a extreme case
     # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0040_black_floor_09_04_2019_08_28_13_21'
-    scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0040_black_floor_09_04_2019_08_28_13_21'
-    switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, resize_factor=None, context=True)
+    # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0043_oak_table_10_04_2019_08_28_15_29'
+    scan_name = os.path.join(dataset_dir, testset_video_list[video_index])
+    switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, 
+                            resize_factor=None, context=True, video_index=video_index)
+
     switcher.display()
+
+
     # for env in env_lists:
     #     env_dir = os.path.join(dataset_dir, env)
     #     item_list = os.listdir(env_dir)

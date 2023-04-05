@@ -254,7 +254,100 @@ def stack_inputs(skeleton_data, obj_data):
     # print("cat Inputs size:", inputs.size())
     return inputs
 
+def stack_inputs_EGCN(skeleton_data, object_data):
+    """
+    A function stack skeleton data and object data to generate new inputs for EGCN
 
+    Inputs
+    ----------
+    skeleton_data : N x C_s x T x V x M tensor
+        N batch size, C number of channels, T number of frames, V number of joints
+    obj_data: N x C_o x T x V x M tensor
+        C_o number of channels of obj_data(bbox, cat), V_o(number of objects)
+    Outputs
+    ----------
+    inputs: N x 3 x C_o x T x (V + V_o) x M tensor
+    """
+    N, C, T, V, M = skeleton_data.size()
+    connection = np.array([1,1,1,2,3,1,5,6,2,8,9,5,11,12,0,0,14,15])
+
+    new_input = []
+    # object_data = object_data.numpy()
+    # For over each batch
+    for i in range(N): 
+        # 5 x T x V x M
+        objects = object_data[i]
+        # 4 x T x V x M
+        joint, velocity, bone = multi_input(skeleton_data[i], connection)
+        joint = torch.from_numpy(joint)
+        velocity = torch.from_numpy(velocity)
+        bone = torch.from_numpy(bone)
+
+        # Skeleton data -> N x C_o x T x V x M
+        C_s, T, V, M = joint.size()
+        C_o, T, V, M = objects.size()
+        # print("-------------------------------------")
+        # print("old joint size:", joint.size())
+        # print("old obj_data size:", objects.size())
+        temp = objects[:, :, :6, :]
+        # 5(bbox,) x T x 6 x M
+        obj_data = temp
+        
+        zeros = torch.zeros((C_o- C_s, T, V, M))
+        # N x C_o x T x V x M
+        joint = torch.cat([joint, zeros], dim=0)
+        joint[4, :, :, :] = -1
+        
+        velocity = torch.cat([velocity, zeros], dim=0)
+        velocity[4, :, :, :] = -2
+        
+        bone = torch.cat([bone, zeros], dim=0)
+        bone[4, :, :, :] = -3
+        # print("obj_data:", obj_data[:, 0, 3, 0])
+        # print("new obj_data size:", obj_data.size())
+        # print("new joint size:", joint.size())
+        # print("new v size:", velocity.size())
+        # print("new b size:", bone.size())
+        # print("new skeleton data:", skeleton_data[0, :, 0, 0, 0])
+
+        joint = torch.cat([joint, obj_data], dim=2)
+        velocity = torch.cat([velocity, obj_data], dim=2)
+        bone = torch.cat([bone, obj_data], dim=2)
+        # print("final j size:", joint.size())
+        # print("new v size:", velocity.size())
+        # print("new b size:", bone.size())
+        # print("final j:", joint[:, 0, 3, 0])
+        # print("final j:", joint[:, 0, 20, 0])
+        # print("final v:", velocity[:, 0, 3, 0])
+        # print("final v:", velocity[:, 0, 20, 0])
+        # print("final b:", bone[:, 0, 3, 0])
+        # print("final b:", bone[:, 0, 20, 0])
+        # print("-------------------------------------")
+        # print("New skeleton_data size:", skeleton_data.size())
+        # print("cat Inputs size:", inputs.size())
+        joint = joint.numpy()
+        velocity = velocity.numpy()
+        bone = bone.numpy()
+        
+        data = []
+        data.append(joint)
+        data.append(velocity)
+        data.append(bone)
+
+        new_input.append(data)
+
+    # N x 3 x C_o x T x 24 x M
+    inputs = torch.tensor(np.array(new_input, dtype='f'))
+    # print("inputs size:", inputs.size())
+    # print("Check data----------------------------------------")
+    # print("final j:", inputs[0, 0, :, 0, 2, 0])
+    # print("final j:", inputs[0, 0, :, 0, 21, 0])
+    # print("final v:", inputs[0, 1, :, 0, 2, 0])
+    # print("final v:", inputs[0, 1, :, 0, 21, 0])
+    # print("final b:", inputs[0, 2, :, 0, 2, 0])
+    # print("final b:", inputs[0, 2, :, 0, 21, 0])
+    # print("Check data----------------------------------------")
+    return inputs
 def run(args):
 
     os.makedirs(args.logdir, exist_ok=True)
@@ -266,7 +359,7 @@ def run(args):
                            frame_skip=args.frame_skip, frames_per_clip=args.frames_per_clip, mode=args.load_mode,
                            pose_path=args.pose_relative_path, arch=args.arch, with_obj=args.with_obj)
 
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, num_workers=8,
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, num_workers=8, shuffle = False,
                                                   pin_memory=True)
     
     # setup the model
@@ -415,13 +508,15 @@ def run(args):
         model.train(False)
         # get the inputs
         skeleton_data, labels, vid_idx, frame_pad, object_data = data
-        
+        # print(vid_idx)
         ###################################################################
         test_object_data(object_data, with_obj=args.with_obj)
         test_skeleton_data(skeleton_data)
         ###################################################################
-
-        inputs = stack_inputs(skeleton_data, object_data)
+        if args.arch == 'EGCN':
+            inputs = batch_multi_input(skeleton_data, object_data, args.with_obj)
+        else:
+            inputs = append_object_data(skeleton_data, object_data)
         
         ###################################################################
         # test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
@@ -441,38 +536,45 @@ def run(args):
         # Interpolate over all frames in the clip
         # logits after interpolate: N x classes x T
         logits = torch.nn.functional.interpolate(logits.unsqueeze(-1), t, mode='linear', align_corners=True)
+        # print("logits interpo:", logits.size())
+        # print("labels interpo:", labels.size())
+
+
         # logits: N x num_classes x T
         acc = i3d_utils.accuracy_v2(torch.argmax(logits, dim=1), torch.argmax(labels, dim=1))
         avg_acc.append(acc.item())
-        pred.append(torch.argmax(logits, 1).detach().cpu().numpy().tolist())
-        true.append(torch.argmax(labels, 1).detach().cpu().numpy().tolist())
         logits = logits.permute(0, 2, 1)  # [ batch, frames, classes]
-        # frames_per_clip = inputs.size()[2]
-        # print('frames_per_segment:', frames_per_clip)
+        labels = labels.permute(0, 2, 1)  # [ batch, frames, classes]
+        # print("logits permute:", logits.size())
+        # print("labels permute:", labels.size())
         # logits: N*T x classes
         logits = logits.reshape(inputs.shape[0] * frames_per_clip, -1)
         labels = labels.reshape(inputs.shape[0] * frames_per_clip, -1)
-        pred_labels = torch.argmax(logits, 1).detach().cpu().numpy().tolist()
-        true_labels = torch.argmax(labels, 1).detach().cpu().numpy().tolist()
+        # print("logits reshape:", logits.size())
+        # print("labels reshape:", labels.size())
+
+        pred_labels = torch.argmax(logits, dim=1).detach().cpu().numpy().tolist()
+        true_labels = torch.argmax(labels, dim=1).detach().cpu().numpy().tolist()
+        # print("logits argmax:", np.shape(pred_labels))
+        # print("labels argmax:", np.shape(true_labels))
+        pred.append(pred_labels)
+        true.append(true_labels)
+
         # print('pred_labels:',np.shape(pred_labels))
         # print('true_labels:',np.shape(true_labels))
-        logits = torch.nn.functional.softmax(logits, dim=1).detach().cpu().numpy().tolist()
         # frame_pad = torch.tensor([0])
-        pred_labels_per_video, logits_per_video = \
-            utils.accume_per_video_predictions(vid_idx, frame_pad,pred_labels_per_video, logits_per_video, pred_labels,
-                                     logits, frames_per_clip)
-        true_labels_per_video, true_logits_per_video = \
-            utils.accume_per_video_predictions(vid_idx, frame_pad,true_labels_per_video, labels.detach().cpu().numpy().tolist(), true_labels,
-                                        logits, frames_per_clip)
+        pred_labels_per_video = \
+            utils.accume_per_video_predictions(vid_idx, frame_pad,pred_labels_per_video, pred_labels, frames_per_clip)
+        true_labels_per_video = \
+            utils.accume_per_video_predictions(vid_idx, frame_pad,true_labels_per_video, true_labels, frames_per_clip)
     
-    
+    pred_labels_per_video = [np.array(pred_video_labels) for pred_video_labels in pred_labels_per_video]
+    true_labels_per_video = [np.array(true_video_labels) for true_video_labels in true_labels_per_video]
+
     f1_10 = metrics.f1_at_k(true_labels_per_video, pred_labels_per_video, num_classes=num_classes, overlap=0.1)
     f1_25 = metrics.f1_at_k(true_labels_per_video, pred_labels_per_video, num_classes=num_classes, overlap=0.25)
     f1_50 = metrics.f1_at_k(true_labels_per_video, pred_labels_per_video, num_classes=num_classes, overlap=0.5)
     # Compute confusion matrix
-
-    # c_matrix = confusion_matrix(np.concatenate(true_labels_per_video).ravel(), np.concatenate(pred_labels_per_video).ravel(),
-    #                             labels=range(num_classes))
     c_matrix = confusion_matrix(np.concatenate(true).ravel(), np.concatenate(pred).ravel(),
                                 labels=range(num_classes))
     class_names = utils.squeeze_class_names(test_dataset.action_list)
@@ -486,6 +588,7 @@ def run(args):
 
     plt.savefig(os.path.join(args.logdir, 'confusion_matrix.png'))
 
+    accum_acc = accuracy_score(np.concatenate(true_labels_per_video).ravel(), np.concatenate(pred_labels_per_video).ravel())
 
     concat_acc = accuracy_score(np.concatenate(true).ravel(), np.concatenate(pred).ravel())
     logging.info("--------------Test Report--------------")
@@ -493,13 +596,18 @@ def run(args):
     print('Model args:', args.model_args)
     print('Average accuracy(framewise):', np.mean(avg_acc))
     print('Accuracy concat video frames:', concat_acc)
+    print('Accuracy accum video frames:', accum_acc)
     print("F1@10%:", f1_10)
     print("F1@25%:", f1_25)
     print("F1@50%:", f1_50)
     print("Confusion matrix: Done")
+
+    # Store prediction and true results
+    np.savez(os.path.join(args.logdir, 'prediction.npz'), *pred_labels_per_video)
+    np.savez(os.path.join(args.logdir, 'true.npz'), *true_labels_per_video)
+
     # Write test report
     text_path = './log/results/all_append_wo_q.txt'
-
     with open(text_path, 'a') as f:
     # Write the text to the file
         f.write('---------------------------------\n')

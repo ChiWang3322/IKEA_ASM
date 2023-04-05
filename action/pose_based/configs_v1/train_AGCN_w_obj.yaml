@@ -40,7 +40,7 @@ model_args:
 
 # Optimizer
 # SGD, Adam
-optimizer: Adam
+optimizer: SGD
 optimizer_args:
   SGD:
     lr: 0.1
@@ -68,7 +68,7 @@ scheduler_args:
     gamma: 0.6
 
 # Training
-n_epochs: 100
+n_epochs: 150
 steps_per_update: 1
 refine: False
 refine_epoch: 0

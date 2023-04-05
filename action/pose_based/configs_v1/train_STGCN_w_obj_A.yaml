@@ -41,10 +41,10 @@ logdir: ./log/STGCN_50_w_obj_A
 
 # Optimizer
 # SGD, Adam
-optimizer: Adam
+optimizer: SGD
 optimizer_args:
   SGD:
-    lr: 0.1
+    lr: 0.01
     momentum: 0.9
     nesterov: True
     weight_decay: 0.0001

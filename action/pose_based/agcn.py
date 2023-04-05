@@ -68,12 +68,14 @@ class unit_gcn(nn.Module):
             A = tmp
             A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
             self.register_parameter("A", A)
+            self.PA = nn.Parameter(torch.from_numpy(A.detach().numpy().astype(np.float32)))
         else:
             self.A = Variable(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
+            self.PA = nn.Parameter(torch.from_numpy(A.astype(np.float32)))
         # print("inter channels:",inter_channels)
         self.inter_c = inter_channels
         # Bk in the paper
-        self.PA = nn.Parameter(torch.from_numpy(A.detach().numpy().astype(np.float32)))
+        
         nn.init.constant_(self.PA, 1e-6)
         # Ak in the paper
 

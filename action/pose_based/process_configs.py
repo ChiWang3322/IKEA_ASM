@@ -18,9 +18,8 @@ for config in config_list:
             except:
                 yaml_arg = yaml.load(f, Loader=SafeLoader)
             # Modify value
-            yaml_arg['obj_path'] = 'seg'
-            yaml_arg['dataset_path'] = '/media/zhihao/Chi_SamSungT7/IKEA_ASM'
-
+            # yaml_arg['Optimizer'] = 'SGD'
+            # yaml_arg['Optimizer_args'][] = 'SGD'
             #
             with open(config_file, 'w') as f:
                 yaml.dump(yaml_arg, f)
