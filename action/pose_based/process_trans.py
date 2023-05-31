@@ -428,9 +428,9 @@ def get_trans(scan_name, step = 1):
         past_data_2d_tmp = curr_data_2d_tmp
 
 
-        print("Number of objects:", len(curr_data_2d_tmp))
-        print("shape of trans_m:", np.shape(trans_m))
-        print("Trans M:", trans_m)
+        # print("Number of objects:", len(curr_data_2d_tmp))
+        # print("shape of trans_m:", np.shape(trans_m))
+        # print("Trans M:", trans_m)
         # Convert numpy array to list trans_m:[ndarray, ndarray...]
         for i in range(len(trans_m)):
             trans_m[i] = trans_m[i].tolist()
@@ -527,7 +527,7 @@ if __name__ == '__main__':
     dev = 'dev3'
     # env_dir = os.path.join(dataset_dir, env_lists[0])
     # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Lack_Side_Table/0039_white_floor_08_04_2019_08_28_10_40'
-    step = 100
+    step = 10
     for env in env_lists:
         env_dir = os.path.join(dataset_dir, env)
         item_list = os.listdir(env_dir)

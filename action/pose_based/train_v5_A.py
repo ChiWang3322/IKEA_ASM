@@ -3,9 +3,10 @@
 # train pose based action recognition  methods on IKEA ASM dataset
 
 
-import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging, datetime
+import os, logging, math, time, sys, argparse, numpy as np, copy, time, yaml, logging, datetime, shutil
 from yaml.loader import SafeLoader
 from tqdm import tqdm
+from thop import profile
 
 sys.path.append('../') # pose_based
 sys.path.append('../clip_based/i3d/')  # for utils and video transforms
@@ -23,18 +24,32 @@ import st_gcn, agcn, st2ransformer_dsta
 from EfficientGCN.nets import EfficientGCN as EGCN
 
 from Obj_stream import ObjectNet
-from net.utils.graph import Graph as g
+
 import i3d_utils as utils
 
 
 from EfficientGCN.activations import *
 from IKEAActionDataset import IKEAPoseActionVideoClipDataset as Dataset
 from torch.utils.tensorboard import SummaryWriter
+from tools import *
 
 
 
-
-
+class CosineWarmupLR(lr_scheduler._LRScheduler):
+    def __init__(self, optimizer, warmup_epochs, max_epochs, warmup_factor=0.1):
+        self.warmup_epochs = warmup_epochs
+        self.max_epochs = max_epochs
+        self.warmup_factor = warmup_factor
+        self.cycle_epochs = max_epochs - warmup_epochs
+        super(CosineWarmupLR, self).__init__(optimizer)
+        
+    def get_lr(self):
+        if self.last_epoch < self.warmup_epochs:
+            return [base_lr * self.warmup_factor * ((self.last_epoch+1)/self.warmup_epochs) for base_lr in self.base_lrs]
+        else:
+            progress = (self.last_epoch - self.warmup_epochs) / self.cycle_epochs
+            cosine_decay = 0.5 * (1 + math.cos(math.pi * progress))
+            return [base_lr * cosine_decay for base_lr in self.base_lrs] 
 
 #from torch.utils.tensorboard import SummaryWriter
 def init_parser():
@@ -104,37 +119,40 @@ def init_model(model_type, model_args, num_classes):
         model =  agcn.Model(num_class=num_classes, **model_args)
 
     elif model_type == 'EGCN':
-            # Graph and activation function
-            graph = g()
-            __activations = {
-                'relu': nn.ReLU(inplace=True),
-                'relu6': nn.ReLU6(inplace=True),
-                'hswish': HardSwish(inplace=True),
-                'swish': Swish(inplace=True),
-            }
-            # Rescale block function
-            def rescale_block(block_args, scale_args, scale_factor):
-                channel_scaler = math.pow(scale_args[0], scale_factor)
-                depth_scaler = math.pow(scale_args[1], scale_factor)
-                new_block_args = []
-                for [channel, stride, depth] in block_args:
-                    channel = max(int(round(channel * channel_scaler / 16)) * 16, 16)
-                    depth = int(round(depth * depth_scaler))
-                    new_block_args.append([channel, int(stride), depth])
-                return new_block_args
-            # Rescaled block args
-            model_args['block_args'] = rescale_block(model_args['block_args'], 
-                                        scale_args=model_args['scale_args'],
-                                        scale_factor=model_args['scale_factor'])
+        from net.utils.graph import Graph as g
+        # Graph and activation function
+        layout = model_args['layout']
+        graph = g(layout=layout)
+        print("graph.A.shape:",graph.A.shape)
+        __activations = {
+            'relu': nn.ReLU(inplace=True),
+            'relu6': nn.ReLU6(inplace=True),
+            'hswish': HardSwish(inplace=True),
+            'swish': Swish(inplace=True),
+        }
+        # Rescale block function
+        def rescale_block(block_args, scale_args, scale_factor):
+            channel_scaler = math.pow(scale_args[0], scale_factor)
+            depth_scaler = math.pow(scale_args[1], scale_factor)
+            new_block_args = []
+            for [channel, stride, depth] in block_args:
+                channel = max(int(round(channel * channel_scaler / 16)) * 16, 16)
+                depth = int(round(depth * depth_scaler))
+                new_block_args.append([channel, int(stride), depth])
+            return new_block_args
+        # Rescaled block args
+        model_args['block_args'] = rescale_block(model_args['block_args'], 
+                                    scale_args=model_args['scale_args'],
+                                    scale_factor=model_args['scale_factor'])
 
-            print('New block args:', model_args['block_args'])
+        print('New block args:', model_args['block_args'])
 
-            kargs = kwargs = {
-                'num_class': num_classes,
-                'A': graph.A,
-                'act': __activations[model_args['act_type']]
-            }
-            model = EGCN(**model_args, **kargs)
+        kargs = kwargs = {
+            'num_class': num_classes,
+            'A': graph.A,
+            'act': __activations[model_args['act_type']]
+        }
+        model = EGCN(**model_args, **kargs)
     
     elif model_type == 'DSTA':
 
@@ -143,241 +161,20 @@ def init_model(model_type, model_args, num_classes):
         raise ValueError("Unsupported architecture: please select EGCN | STGCN | AGCN | STGAN")
     return model
 
-
-
-def visualize_data():
-    pass
-
-
-#########################################
-######## Modify Input ########
-#########################################
-def multi_input(data, connection):
-    """
-    A function used to generate joint, bone and velocity from only joint data
-
-    Inputs
-    ----------
-    data : C x T x V tensor
-        N batch size, C number of channels, T number of frames, V number of joints
-    connecion: 1 x V list
-        describe the connected point of each joint
-    Outputs
-    ----------
-    joint, velocity and bone data, each of size C*2 x T x V
-    """
-    # Channels, T, Num joints, num person
-    C, T, V, M = data.size()
-    data = data.numpy()
-    joint = np.zeros((C*2, T, V, M))
-    velocity = np.zeros((C*2, T, V, M))
-    bone = np.zeros((C*2, T, V, M))
-    joint[:C,:,:,:] = data
-    for i in range(V):
-        # joint_i - center joint(number 1)
-        joint[C:,:,i,:] = data[:,:,i,:] - data[:,:,1,:]
-    for i in range(T-2):
-        velocity[:C,i,:,:] = data[:,i+1,:,:] - data[:,i,:,:]
-        velocity[C:,i,:,:] = data[:,i+2,:,:] - data[:,i,:,:]
-    for i in range(len(connection)):
-        bone[:C,:,i,:] = data[:,:,i,:] - data[:,:,connection[i],:]
-    bone_length = 0
-    for i in range(C):
-        bone_length += bone[i,:,:,:] ** 2
-    bone_length = np.sqrt(bone_length) + 0.0001
-    for i in range(C):
-        bone[C+i,:,:,:] = np.arccos(bone[i,:,:,:] / bone_length)
-    return joint, velocity, bone
-    
-#########################################
-######## Modify Input ########
-#########################################
-def batch_multi_input(inputs:torch.Tensor, object_data, with_obj):
-    N, C, T, V, M = inputs.size()
-    connection = np.array([1,1,1,2,3,1,5,6,2,8,9,5,11,12,0,0,14,15])
-    new_input = []
-    object_data = object_data.numpy()
-    # For over each batch
-    for i in range(N): 
-        objects = object_data[i]
-        joint, velocity, bone = multi_input(inputs[i], connection)
-        if with_obj:
-            joint = np.concatenate((joint, objects), axis=0)
-            velocity = np.concatenate((velocity, objects), axis=0)
-            bone = np.concatenate((bone, objects), axis=0)
-        
-        data = []
-        data.append(joint)
-        data.append(velocity)
-        data.append(bone)
-
-        new_input.append(data)
-    inputs = torch.tensor(np.array(new_input, dtype='f'))
-    return inputs
-def stack_inputs(skeleton_data, obj_data):
-    """
-    A function stack skeleton data and object data to generate new inputs
-
-    Inputs
-    ----------
-    skeleton_data : N x C_s x T x V x M tensor
-        N batch size, C number of channels, T number of frames, V number of joints
-    obj_data: N x C_o x T x V x M tensor
-        C_o number of channels of obj_data(bbox, cat), V_o(number of objects)
-    Outputs
-    ----------
-    inputs: N x C_o x T x (V + V_o) x M tensor
-    """
-    # Skeleton data -> N x C_o x T x V x M
-    N, C_s, T, V, M = skeleton_data.size()
-    _, C_o, _, V, _ = obj_data.size()
-    # print("old skeleton_data size:", skeleton_data.size())
-    # print("old obj_data size:", obj_data.size())
-    temp = obj_data[:, :, :, :6, :]
-    
-    obj_data = temp
-    # print("obj_data:", obj_data[0, :, 0, 3, 0])
-    # print("new obj_data size:", obj_data.size())
-    zeros = torch.zeros((N, C_o- C_s, T, V, M))
-    # N x C_o x T x V x M
-    skeleton_data = torch.cat([skeleton_data, zeros], dim=1)
-    # skeleton_data[:, 2:4, :, :, :] = skeleton_data[:, :2, :, :, :]
-    skeleton_data[:, 4, :, :, :] = -1
-    # print("new skeleton data:", skeleton_data[0, :, 0, 0, 0])
-    inputs = torch.cat([skeleton_data, obj_data], dim=3)
-    # print("New skeleton_data size:", skeleton_data.size())
-    # print("cat Inputs size:", inputs.size())
-    return inputs
-
-   
-def stack_inputs_EGCN(skeleton_data, object_data):
-    """
-    A function stack skeleton data and object data to generate new inputs for EGCN
-
-    Inputs
-    ----------
-    skeleton_data : N x C_s x T x V x M tensor
-        N batch size, C number of channels, T number of frames, V number of joints
-    obj_data: N x C_o x T x V x M tensor
-        C_o number of channels of obj_data(bbox, cat), V_o(number of objects)
-    Outputs
-    ----------
-    inputs: N x 3 x C_o x T x (V + V_o) x M tensor
-    """
-    N, C, T, V, M = skeleton_data.size()
-    connection = np.array([1,1,1,2,3,1,5,6,2,8,9,5,11,12,0,0,14,15])
-
-    new_input = []
-    # object_data = object_data.numpy()
-    # For over each batch
-    for i in range(N): 
-        # 5 x T x V x M
-        objects = object_data[i]
-        # 4 x T x V x M
-        joint, velocity, bone = multi_input(skeleton_data[i], connection)
-        joint = torch.from_numpy(joint)
-        velocity = torch.from_numpy(velocity)
-        bone = torch.from_numpy(bone)
-
-        # Skeleton data -> N x C_o x T x V x M
-        C_s, T, V, M = joint.size()
-        C_o, T, V, M = objects.size()
-        # print("-------------------------------------")
-        # print("old joint size:", joint.size())
-        # print("old obj_data size:", objects.size())
-        temp = objects[:, :, :6, :]
-        # 5(bbox,) x T x 6 x M
-        obj_data = temp
-        
-        zeros = torch.zeros((C_o- C_s, T, V, M))
-        # N x C_o x T x V x M
-        joint = torch.cat([joint, zeros], dim=0)
-        joint[4, :, :, :] = -1
-        
-        velocity = torch.cat([velocity, zeros], dim=0)
-        velocity[4, :, :, :] = -2
-        
-        bone = torch.cat([bone, zeros], dim=0)
-        bone[4, :, :, :] = -3
-        # print("obj_data:", obj_data[:, 0, 3, 0])
-        # print("new obj_data size:", obj_data.size())
-        # print("new joint size:", joint.size())
-        # print("new v size:", velocity.size())
-        # print("new b size:", bone.size())
-        # print("new skeleton data:", skeleton_data[0, :, 0, 0, 0])
-
-        joint = torch.cat([joint, obj_data], dim=2)
-        velocity = torch.cat([velocity, obj_data], dim=2)
-        bone = torch.cat([bone, obj_data], dim=2)
-        # print("final j size:", joint.size())
-        # print("new v size:", velocity.size())
-        # print("new b size:", bone.size())
-        # print("final j:", joint[:, 0, 3, 0])
-        # print("final j:", joint[:, 0, 20, 0])
-        # print("final v:", velocity[:, 0, 3, 0])
-        # print("final v:", velocity[:, 0, 20, 0])
-        # print("final b:", bone[:, 0, 3, 0])
-        # print("final b:", bone[:, 0, 20, 0])
-        # print("-------------------------------------")
-        # print("New skeleton_data size:", skeleton_data.size())
-        # print("cat Inputs size:", inputs.size())
-        joint = joint.numpy()
-        velocity = velocity.numpy()
-        bone = bone.numpy()
-        
-        data = []
-        data.append(joint)
-        data.append(velocity)
-        data.append(bone)
-
-        new_input.append(data)
-
-    # N x 3 x C_o x T x 24 x M
-    inputs = torch.tensor(np.array(new_input, dtype='f'))
-    # print("inputs size:", inputs.size())
-    # print("Check data----------------------------------------")
-    # print("final j:", inputs[0, 0, :, 0, 2, 0])
-    # print("final j:", inputs[0, 0, :, 0, 21, 0])
-    # print("final v:", inputs[0, 1, :, 0, 2, 0])
-    # print("final v:", inputs[0, 1, :, 0, 21, 0])
-    # print("final b:", inputs[0, 2, :, 0, 2, 0])
-    # print("final b:", inputs[0, 2, :, 0, 21, 0])
-    # print("Check data----------------------------------------")
-    return inputs
-
-
-
-
-
-def append_object_data(skeleton_data, object_data):
-
-    N, C, T, V, M = skeleton_data.size()
-    # print("Skeleton size:", skeleton_data.size())
-    # print("Obj size:", object_data.size())
-    object_data = object_data.numpy()
-    new_input = []
-    # Append the object data to the inputs
-    for i in range(N): 
-        object_tmp = object_data[i]
-        new_input.append(np.concatenate((skeleton_data[i].numpy(), object_tmp), axis=0))
-
-    inputs = torch.tensor(np.array(new_input, dtype='f'))
-    # print("New input size:", inputs.size())
-    return inputs
-
-
-
-def import_class(name):
-    components = name.split('.')
-    mod = __import__(components[0])
-    for comp in components[1:]:
-        mod = getattr(mod, comp)
-    return mod
+# def import_class(name):
+#     components = name.split('.')
+#     mod = __import__(components[0])
+#     for comp in components[1:]:
+#         mod = getattr(mod, comp)
+#     return mod
 
 def run(args):
     # Initialize summary writer with specific logdir
     writer_log = args.logdir.split('/')[2]
     writer_dir = os.path.join('./runs', writer_log + '_split')
+    if os.path.exists(writer_dir):
+        shutil.rmtree(writer_dir)
+        print("Removed existed writer directory......")
     print("Writer dir:", writer_dir)
     writer = SummaryWriter(writer_dir)
 
@@ -387,7 +184,7 @@ def run(args):
     # setup dataset
     train_transforms = None
     test_transforms = None
-    train_dataset = Dataset(args.dataset_path, db_filename=args.db_filename, train_filename=args.train_filename,
+    train_dataset = Dataset(args.dataset_path, db_filename=args.db_filename, train_filename="train_cross_env_small.txt",
                         test_filename=args.test_filename,
                         transform=train_transforms, set='train', camera=args.camera, frame_skip=args.frame_skip,
                         frames_per_clip=args.frames_per_clip, mode=args.load_mode, pose_path=args.pose_relative_path, 
@@ -396,6 +193,7 @@ def run(args):
     split_ratio = 0.8
 
     # split the dataset into training and validation sets
+    np.random.seed(42)
     dataset_size = len(train_dataset)
     indices = list(range(dataset_size))
     split = int(np.floor(split_ratio * dataset_size))
@@ -408,9 +206,9 @@ def run(args):
 
     # define the dataloaders
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=8,
-                                                  pin_memory=True, sampler=train_sampler)
+                                                  pin_memory=True, sampler=train_sampler, shuffle=False)
     test_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=val_sampler, 
-                                                    num_workers=8,pin_memory=True)
+                                                    num_workers=8,pin_memory=True, shuffle=False)
 
 
     
@@ -420,7 +218,7 @@ def run(args):
 
     model_args = args.model_args
 
-    logging.info("----------------------Dataset INFO----------------------")
+    print("\n"+"=========="*8 + "Dataset INFO\n")
     print('Dataset: IKEA_ASM')
     print('Dataset path:', args.dataset_path)
     print('Number of clips in the whole dataset(train_cross_env.txt):', int(len(train_dataset)))
@@ -431,11 +229,11 @@ def run(args):
     print("Object Included:{}".format(args.with_obj))
 
     
-    # def print_model_parameters(model):
-    #     print("Trainable parameters...............")
-    #     for name, param in model.named_parameters():
-    #         if param.requires_grad:
-    #             print(name, param.shape)
+    def print_model_parameters(model):
+        print("Trainable parameters...............")
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                print(name, param.shape)
 
 
     def test_skeleton_data(skeleton_data):
@@ -464,7 +262,7 @@ def run(args):
     if not next(model.parameters()).is_cuda:
         model.cuda()
 
-
+    # print_model_parameters(model)
     # Init optimizer
     optim_args = args.optimizer_args
     optim_type = args.optimizer
@@ -475,31 +273,37 @@ def run(args):
         optimizer = optim.SGD(model.parameters(), **opt_args)
     # Init learning rate scheduler
 
-    warmup_epochs = 30
-    warmup_scheduler = lr_scheduler.LinearLR(optimizer, optim_args[optim_type]['lr'] / warmup_epochs, total_iters = warmup_epochs)
+    warmup_epochs = 15
+    warmup_factor = 0.4
+    lr_sched = CosineWarmupLR(optimizer, warmup_epochs=warmup_epochs, max_epochs=args.n_epochs, warmup_factor=warmup_factor)
 
-    decay_epochs = 10
-    decay_factor = 0.5
-    decay_scheduler = lr_scheduler.StepLR(optimizer, step_size=decay_epochs, gamma=decay_factor)
 
     # lr_sched = optim.lr_scheduler.MultiStepLR(optimizer, **(args.scheduler_args['MultiStepLR']))
 
 
     # Print Optimizer INFO
-    logging.info("-----------------Optimizer and SCheduler INFO----------------------")
+    print("\n"+"=========="*8 + "Optimizer and SCheduler INFO\n")
     print('Using optimizer:{}'.format(optim_type))
-    print('LR Scheduler:{}, milestone: {}, gamma:{}'.format('MultiStepLR', 
-                                                        args.scheduler_args['MultiStepLR']['milestones'], 
-                                                        args.scheduler_args['MultiStepLR']['gamma']))
+    print('Optimizer args:', opt_args)
+    print('Scheduler:{}, warmp-up epochs: {}, warm-up factor:{}'.format('CosineWarmupLR', 
+                                                        warmup_epochs, 
+                                                        warmup_factor))
 
     model_total_params = sum(p.numel() for p in model.parameters())
     model_total_params = model_total_params / 10**6
 
     # Print model INFO
-    logging.info("-----------------------Model INFO---------------------------------")
-    print('Skeleton stream:{}\nnumber of parameters:{}M'.format(arch, round(model_total_params, 2)))
+    print("\n"+"=========="*8 + "Model INFO\n")
+    print('Model:{}\nnumber of parameters:{}M'.format(arch, round(model_total_params, 2)))
     print('Model args:', model_args)
-    
+    print('Graph layout:', model_args['layout'])
+    print('Logdir:', args.logdir)
+    # input_tmp = torch.randn((1, 3, 5, 50, 24, 1))
+    # input_tmp = Variable(input_tmp.cuda(), requires_grad=False)
+
+    # flops, params = profile(model, inputs=(input_tmp,))
+    # print('FLOPs = ' + str(flops/1000**3) + 'G')
+
     # train iterations
     train_num_batch = len(train_dataloader)
     test_num_batch = len(test_dataloader)
@@ -507,30 +311,26 @@ def run(args):
 
     best_acc = 0
 
-        
+
     max_steps = args.n_epochs
 
 
     #for epoch in range(num_epochs):
     for steps in range(max_steps):
         # Log info
-        logging.info("-------------------Training model-------------------")
-        if steps < warmup_epochs:
-            curr_lr = warmup_scheduler.get_last_lr()
-        else:
-            curr_lr = decay_scheduler.get_last_lr()
-        print('Step {}/{}, Learning rate:{}'.format(steps, max_steps, curr_lr))
+        curr_lr = lr_sched.get_last_lr()
+        printlog("Epoch {0} / {1}, learning rate: {2}".format(steps, max_steps, curr_lr))
         writer.add_scalar("Current lr", torch.tensor(curr_lr), steps)
         # Initialization
         train_loss = 0.0
         num_iter = 0
         optimizer.zero_grad()
-
+        
         # Iterate over data.
         train_acc = []
-        
+        loop = tqdm(enumerate(train_dataloader), total =len(train_dataloader), file = sys.stdout)
         # Training phase
-        for train_batchind, data in enumerate(tqdm(train_dataloader)):
+        for train_batchind, data in loop:
             model.train(True)
             num_iter += 1
             # get the inputs
@@ -542,14 +342,29 @@ def run(args):
             ###################################################################
             if args.arch == 'EGCN':
                 inputs = stack_inputs_EGCN(skeleton_data, object_data)
+                # print("Inputs size:", inputs.size())
+                # print("Check hand1 joint:", inputs[0, 0, :, 20, 4, 0])
+                # print("Check hand2 joint:", inputs[0, 0, :, 20, 4, 0])
+                # print("Check object:", inputs[0, 0, :, 20, 20, 0])
             else:
+                # start = time.time()
                 inputs = stack_inputs(skeleton_data, object_data)
+                # print("process time:", time.time()-start)
             # print("Inputs size:", inputs.size())
+            # print("Check hand1:", inputs[0, :, 0, 4, 0])
+            # print("Check hand2:", inputs[0, :, 0, 7, 0])
+            # print("Check object:", inputs[4, :, 20, 20, 0])
+            
             ###################################################################
             # test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
             ###################################################################
 
             inputs = Variable(inputs.cuda(), requires_grad=True)
+            # input_tmp = inputs[0:2]
+            # print("size:", input_tmp.size())
+            # flops, params = profile(model, inputs=(input_tmp,))
+            # print('FLOPs = ' + str(flops/2/1000**3) + 'G')
+            # print('Params = ' + str(params/1000**2) + 'M')
             # print("Inputs:", inputs.size())
             
 
@@ -576,14 +391,11 @@ def run(args):
 
             
             train_acc.append(acc.item())
-            
+            loop.set_postfix({'train_loss': round(train_loss/(train_batchind+1), 3), 'train_acc': round(np.mean(train_acc), 3)})
             # Update weights 
             optimizer.step()
             optimizer.zero_grad()
-            if steps < warmup_epochs:
-                warmup_scheduler.step()
-            else:
-                decay_scheduler.step()
+            
 
         # Evaluation Phase
         logging.info('-------------------Evaluating model-------------------')
@@ -592,11 +404,13 @@ def run(args):
         model.train(False)  # Set model to evaluate mode
         # start_eval_time = time()
         with torch.no_grad():
-            for test_batchind, data in enumerate(tqdm(test_dataloader)):
+            loop = tqdm(enumerate(test_dataloader), total =len(test_dataloader), file = sys.stdout)
+            for test_batchind, data in loop:
                 skeleton_data, labels, vid_idx, frame_pad, object_data = data
                 if args.arch == 'EGCN':
                     inputs = stack_inputs_EGCN(skeleton_data, object_data)
                 else:
+                    
                     inputs = stack_inputs(skeleton_data, object_data)
 
                 # test_inputs(arch, inputs, skeleton_data, object_data, args.with_obj)
@@ -616,11 +430,11 @@ def run(args):
                 # Accumulate loss
                 val_loss += loss.item()
 
-
+                
                 # Calculate accuracy
                 acc = utils.accuracy_v2(torch.argmax(per_frame_logits, dim=1), labels)
-
                 val_acc.append(acc.item())
+                loop.set_postfix({'val_loss': round(val_loss/(test_batchind+1), 3), 'val_acc': round(np.mean(val_acc), 3)})
 
         # remember best prec@1 and save checkpoint
         epoc_val_acc = np.mean(val_acc)
@@ -646,7 +460,7 @@ def run(args):
         print('Loss: {}, Accuracy: {}'.format(round(val_loss/test_num_batch, 3), round(np.mean(val_acc), 3)))
         # steps += 1
         print('Update lr scheduler...')
-
+        lr_sched.step()
 
     logging.info('--------------------Traing Finished--------------------')
     print("Best accuracy:", best_acc)

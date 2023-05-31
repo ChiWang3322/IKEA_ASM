@@ -38,8 +38,12 @@ class Model(nn.Module):
             tmp = np.zeros((shape[0], shape[1]+6, shape[2] + 6))
             tmp[:, :shape[1], :shape[2]] = A
             A = tmp
-            A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
-            self.register_parameter("A", A)
+            A = torch.tensor(A, dtype=torch.float32, requires_grad=False)   
+            self.register_buffer('A', A) 
+            # A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
+            # self.register_parameter("A", A)
+
+
             # print("New A size:", A.size())
             # print("A:", A[0])
         else:

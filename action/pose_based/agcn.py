@@ -60,12 +60,8 @@ class unit_gcn(nn.Module):
         super(unit_gcn, self).__init__()
         inter_channels = out_channels // coff_embedding
         # print("Custom A:", custom_A)
+        # print("A shape:", A.shape)
         if custom_A:
-            shape = np.shape(A)
-            # print("Old A shape:", shape)
-            tmp = np.zeros((shape[0], shape[1]+6, shape[2] + 6))
-            tmp[:, :shape[1], :shape[2]] = A
-            A = tmp
             A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
             self.register_parameter("A", A)
             self.PA = nn.Parameter(torch.from_numpy(A.detach().numpy().astype(np.float32)))
@@ -167,10 +163,10 @@ class Model(nn.Module):
             raise ValueError()
         else:
             Graph = import_class(graph)
-            self.graph = Graph(**graph_args)
+            self.graph = Graph(**graph_args, num_node=num_point)
         
         A = self.graph.A
-        # print('A:', A)
+        # print('A:', A.shape)
         self.data_bn = nn.BatchNorm1d(num_person * in_channels * num_point)
         # print("Parameter of bn:", num_person * in_channels * num_point)
         self.l1 = TCN_GCN_unit(in_channels, 64, A, residual=False, custom_A=custom_A)
@@ -208,8 +204,10 @@ class Model(nn.Module):
         x = self.l10(x)
 
         # N*M,C,T,V
+        feature = x
+        feature = feature.unsqueeze(-1)
         c_new = x.size(1)
         x = x.view(N, M, c_new, -1)
         x = x.mean(3).mean(1)
         # return output and features
-        return self.fc(x), x
+        return self.fc(x), feature

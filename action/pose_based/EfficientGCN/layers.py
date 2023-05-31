@@ -191,12 +191,8 @@ class SpatialGraphConv(nn.Module):
         if "custom_A" in kwargs:
             custom_A = kwargs['custom_A']
             if custom_A:
-                shape = np.shape(A)
-                # print("Old A shape:", shape)
-                tmp = np.zeros((shape[0], shape[1]+6, shape[2] + 6))
-                tmp[:, :shape[1], :shape[2]] = A
-                A = tmp
-                A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=True)
+                # A is fixed, not trainable
+                A = nn.Parameter(torch.from_numpy(A.astype(np.float32)), requires_grad=False)
             self.register_parameter("A", A)
 
         else:

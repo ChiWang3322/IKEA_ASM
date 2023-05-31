@@ -20,16 +20,16 @@ test_filename: test_cross_env.txt
 with_obj: True
 #Dataloader
 frame_skip: 1
-batch_size: 48
-frames_per_clip: 50
+batch_size: 64
+frames_per_clip: 100
 
 # Model
 arch: STGCN  #architechture
 model_args: 
-  in_channels: 5
+  in_channels: 11
   graph_args: {'layout': 'openpose', 'strategy': 'spatial'}
   edge_importance_weighting: True
-  dropout: 0.2
+  dropout: 0.6
   custom_A: True
   
 

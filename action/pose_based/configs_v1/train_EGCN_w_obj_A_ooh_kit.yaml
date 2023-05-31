@@ -6,19 +6,19 @@ visualize_obj: False
 visualize_rgb: False
 
 # Dataset
-dataset_path: /media/zhihao/Chi_SamSungT7/IKEA_ASM/
-obj_path: seg
+dataset_path: /media/zhihao/Chi_SamSungT7/KIT_Bimanual
+obj_path: 2d_object
 db_filename: ikea_annotation_db_full
 camera: dev3
-pose_relative_path: predictions/pose2d/openpose
-train_filename: train_cross_env.txt
-test_filename: test_cross_env.txt
+pose_relative_path: body_pose
+train_filename: train_cross_subject.txt
+
 with_obj: True
 
 # Setting
 load_mode: img
 input_type: rgb
-logdir: ./log/EGCN_50_w_obj_A
+logdir: ./log/EGCN_50_w_obj_A_ooh_kit
 
 #Dataloader
 frame_skip: 1
@@ -29,8 +29,8 @@ frames_per_clip: 50
 arch: EGCN  #architechture
 
 model_args:
-  layout: openpose_object_hand
-  data_shape: [3, 5, 50, 24, 1]
+  layout: KIT_object_object_hand
+  data_shape: [3, 5, 50, 31, 1]
   stem_channel: 64
   block_args: [[48,1,0.5],[24,1,0.5],[64,2,1],[128,2,1]]
   fusion_stage: 2
@@ -75,7 +75,7 @@ scheduler_args:
     gamma: 0.6
 
 # Training
-n_epochs: 150
+n_epochs: 300
 steps_per_update: 1
 refine: False
 refine_epoch: 0

@@ -23,7 +23,7 @@ logdir: ./log/EGCN_50_wo_obj
 
 #Dataloader
 frame_skip: 1
-batch_size: 48
+batch_size: 24
 frames_per_clip: 50
 
 # Model

@@ -5,21 +5,27 @@ import vis_utils
 import numpy as np
 import json
 import random
+import math
 import sys
 sys.path.append('../')
 import utils
 import sqlite3
 #TODO implement adjust depth to rgb image size
+class IntensityLengthError(Exception):
+    pass
+
+
 
 class FunctionSwitcher:
 
     def __init__(self, scan_path, output_path=None, modality='dev3', resize_factor=None, context = True, 
                 dataset_dir = '/media/zhihao/Chi_SamSungT7/IKEA_ASM', db_filename='ikea_annotation_db_full',
                 action_list_filename='atomic_action_list.txt', action_object_relation_filename='action_object_relation_list.txt',
-                video_index=0):
+                video_index=0, logdir = None):
         self.video_index = video_index
         self.scan_path = scan_path
         self.output_path = output_path
+        self.logdir = logdir
         # os.makedirs(output_path, exist_ok=True)
         self.modality = modality
         self.device = modality
@@ -45,7 +51,7 @@ class FunctionSwitcher:
         self.ao_list = [x for _, x in sorted(zip(self.action_list, self.ao_list))]
         self.action_list.sort()
         self.action_list.insert(0, "NA")  #  0 label for unlabled frames
-        print(self.action_list)
+        # print(self.action_list)
         # print(self.ao_list)
         self.num_classes = len(self.action_list)
     def get_label(self):
@@ -161,12 +167,21 @@ class FunctionSwitcher:
     def display(self):
         """Load RGB data"""
         # True label
-        data = np.load('../pose_based/log/EGCN_50_w_obj/true.npz')
+        data = np.load(self.logdir + '/true.npz')
         true = [data[key] for key in data.keys()][self.video_index]
         # Prediction
-        data = np.load('../pose_based/log/EGCN_50_w_obj/prediction.npz')
+        data = np.load(self.logdir + '/prediction.npz')
         pred = [data[key] for key in data.keys()][self.video_index]
+        # Intensity
+        data = np.load(self.logdir + '/intensity.npz')
+        intensity = [data[key] for key in data.keys()][self.video_index]
+        min_intensity = np.amin(intensity)
+        max_intensity = np.amax(intensity)
+        # Normalize intensity to 0 - 1
+        intensity = (intensity - min_intensity) / (max_intensity - min_intensity) * 5
 
+        if len(pred) != len(intensity):
+            raise IntensityLengthError("intensity length is not equal to prediction length...")
         video_path = os.path.join(self.scan_path, self.modality, 'images', 'scan_video.avi')
         cap = cv2.VideoCapture(video_path)
         self.get_label()
@@ -184,14 +199,20 @@ class FunctionSwitcher:
                 img.fill(255)
             if ret == True:
                 self.file_idx = frame_ind
-                
+                curr_inten = intensity[frame_ind]
+                print(curr_inten)
                 # Show object segmentation
                 color_cat = {1: (255, 0, 0), 2: (0, 0, 255), 3: (0, 255, 0), 4: (127, 0, 127), 5: (127, 64, 0), 6: (64, 0, 127),
                      7: (64, 0, 64)}
                 cat_dict = {1: 'table_top', 2: 'leg', 3: 'shelf', 4: 'side_panel', 5: 'front_panel', 6: 'bottom_panel',
                      7: 'rear_panel'}
                 obj_data = self.seg()   # keys:"category_id", "image_id", "area", "bbox", "iscrowd", "frame_index"
-                for obj in obj_data:
+                for i, obj in enumerate(obj_data):
+                    if i < 6:
+                        inten = curr_inten[i + 18]
+                    else:
+                        inten = 1
+                    obj = obj_data[i]
                     cat_id = obj['category_id']
                     bbox = obj['bbox'] # <bb_left>, <bb_top>, <bb_width>, <bb_height>
                     x, y, w, h = bbox[0], bbox[1], bbox[2], bbox[3]
@@ -200,7 +221,7 @@ class FunctionSwitcher:
                     pt1 = (int(x), int(y))
                     pt2 = (int(x + w), int(y + h))
                     cv2.rectangle(img, pt1, pt2, color_cat[cat_id], thickness=2)
-                    cv2.circle(img, (center_x, center_y), 3, (255, 0, 0), thickness=-1, lineType=cv2.FILLED)
+                    cv2.circle(img, (center_x, center_y), math.ceil((inten**2)), (255, 0, 0), thickness=-1, lineType=cv2.FILLED)
                 # Show skeleton data on img
                 j2d, _ = self.pose()
                 skeleton_pairs = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12, 11), (10, 9), (9, 8),
@@ -209,10 +230,15 @@ class FunctionSwitcher:
                 # print(skeleton_pairs)
                 bbox = self.seg()
                 bad_points_idx = [] # Points that are failed detected
+                # print(curr_inten)
                 # print("Skeleton pairs", skeleton_pairs)
-                for i, point in enumerate(j2d):
+                for i, (point, inten) in enumerate(zip(j2d, curr_inten)):
                     if not point[0] == 0 and not point[1] == 0:
-                        cv2.circle(img, (int(point[0]), int(point[1])), 2, (255, 0, 0), thickness=-1, lineType=cv2.FILLED)
+                        if i == 4 or i == 7:
+            
+                            cv2.circle(img, (int(point[0]), int(point[1])), math.ceil(inten**2), (0, 165, 255), thickness=-1, lineType=cv2.FILLED)
+                        else:
+                            cv2.circle(img, (int(point[0]), int(point[1])), math.ceil(inten**2), (0, 255, 0), thickness=-1, lineType=cv2.FILLED)
                     else:
                         bad_points_idx.append(i)
 
@@ -228,7 +254,7 @@ class FunctionSwitcher:
                         line_color = part_colors[i]
 
                         img = cv2.line(img, (int(j2d[partA][0]), int(j2d[partA][1])), 
-                                            (int(j2d[partB][0]), int(j2d[partB][1])), line_color, 1)
+                                            (int(j2d[partB][0]), int(j2d[partB][1])), line_color, 2)
                 # Display the resulting frame
 
                 # Define the text to be written
@@ -254,11 +280,11 @@ class FunctionSwitcher:
                 cv2.putText(img, txt, position, font, fontScale, (255,0,0), thickness)
                 cv2.putText(img, true_txt, (position[0], position[1] + 50), font, fontScale, (0, 255, 0), thickness)
                 cv2.putText(img, pred_txt, (position[0], position[1] + 100), font, fontScale, color, thickness)
-                
+                print("img size:", img.shape)
                 cv2.imshow('Frame',img)
             
                 # Press Q on keyboard to  exit
-                if cv2.waitKey(60) == ord('q'):
+                if cv2.waitKey(100) == ord('q'):
                     break
                 frame_ind += 1
             # Break the loop
@@ -269,13 +295,50 @@ class FunctionSwitcher:
         cv2.destroyWindow('Frame')
         cap.release()
 
-
+    def display_rgb(self):
+        video_path = os.path.join(self.scan_path, self.modality, 'images', 'scan_video.avi')
+        cap = cv2.VideoCapture(video_path)
+        self.get_label()
+        # Check if camera opened successfully
+        if (cap.isOpened()== False): 
+            print("Error opening video stream or file")
+        
+        # Read until video is completed
+        while(cap.isOpened()):
+            ret, img = cap.read()
+            if ret:
+                cv2.imshow('Frame',img)
+            
+                # Press Q on keyboard to  exit
+                if cv2.waitKey(60) == ord('q'):
+                    break
+            else:
+                break
+    def display_depth(self):
+        video_path = os.path.join(self.scan_path, self.modality, 'depth', 'scan_video.avi')
+        cap = cv2.VideoCapture(video_path)
+        self.get_label()
+        # Check if camera opened successfully
+        if (cap.isOpened()== False): 
+            print("Error opening video stream or file")
+        
+        # Read until video is completed
+        while(cap.isOpened()):
+            ret, img = cap.read()
+            if ret:
+                cv2.imshow('Frame',img)
+            
+                # Press Q on keyboard to  exit
+                if cv2.waitKey(60) == ord('q'):
+                    break
+            else:
+                break
 
     def depth(self):
         """Load depth data"""
         filename = os.path.join(self.scan_path, self.modality, 'depth', str(self.file_idx).zfill(6) + '.png')
         depth = cv2.imread(filename, cv2.IMREAD_ANYDEPTH).astype(np.float32)
-
+    
 
 
     def pose(self):
@@ -397,6 +460,74 @@ class FunctionSwitcher:
         mean_distance = np.mean(distances)
 
         return mean_distance
+    
+    def display_rgb_and_depth(self):
+
+
+        # Define paths to RGB and depth videos
+        rgb_video_path = os.path.join(self.scan_path, self.modality, 'images', 'scan_video.avi')
+        depth_video_path = os.path.join(self.scan_path, self.modality, 'depth', 'scan_video.avi')
+
+        # Create VideoCapture objects for both videos
+        rgb_cap = cv2.VideoCapture(rgb_video_path)
+        depth_cap = cv2.VideoCapture(depth_video_path)
+
+        # Check if videos opened successfully
+        if not (rgb_cap.isOpened() and depth_cap.isOpened()):
+            print("Error opening videos")
+            exit()
+
+        # Get video dimensions
+        # width = int(depth_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        # height = int(depth_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+        # Create window to display both videos
+        cv2.namedWindow("RGB and Depth Video", cv2.WINDOW_NORMAL)
+
+        while True:
+            # Read frames from both videos
+            ret1, frame1 = rgb_cap.read()
+            ret2, frame2 = depth_cap.read()
+
+            # If either video has reached its end, break loop
+            if not (ret1 and ret2):
+                break
+
+            # Combine RGB and depth frames horizontally
+            frame1 = cv2.resize(frame1, (frame2.shape[1], frame2.shape[0]))
+            combined_frame = cv2.hconcat([frame1, frame2])
+
+            # Display combined frame
+            cv2.imshow("RGB and Depth Video", combined_frame)
+
+            # Press 'q' to exit
+            if cv2.waitKey(5) & 0xFF == ord('q'):
+                break
+
+        # Release video capture objects and destroy window
+        rgb_cap.release()
+        depth_cap.release()
+        cv2.destroyAllWindows()
+
+    def get_pesudo_image(self):
+        video_path = os.path.join(self.scan_path, self.modality, 'images', 'scan_video.avi')
+        cap = cv2.VideoCapture(video_path)
+        t_count = 50
+        frame_ind = 0
+        skeleton_array = []
+        while(cap.isOpened()):
+        # Capture frame-by-frame
+            ret, img = cap.read()
+            if ret == True:
+                self.file_idx = frame_ind
+                j2d, _ = self.pose()
+                
+                skeleton_array.append(j2d.tolist())
+                frame_ind += 1
+                if frame_ind >= t_count:
+                    break
+        return skeleton_array
+        
 def get_list_from_file(filename):
     """
     retrieve a list of lines from a .txt file
@@ -417,25 +548,30 @@ if __name__ == '__main__':
     testset_video_list = get_list_from_file(test_filename)
     # print(testset_video_list)
     scan_name = None
-    video_index = 40
+    video_index = 60
     env_dir = os.path.join(dataset_dir, env_lists[0])
     item_list = os.listdir(env_dir)
+    logdir = '../pose_based/log/EGCN_50_w_obj_A'
     # This is a extreme case
     # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0040_black_floor_09_04_2019_08_28_13_21'
     # scan_name = '/media/zhihao/Chi_SamSungT7/IKEA_ASM/Kallax_Shelf_Drawer/0043_oak_table_10_04_2019_08_28_15_29'
     scan_name = os.path.join(dataset_dir, testset_video_list[video_index])
     switcher = FunctionSwitcher(scan_path=scan_name, output_path=None, modality=dev, 
-                            resize_factor=None, context=True, video_index=video_index)
+                            resize_factor=None, context=True, video_index=video_index, logdir=logdir)
 
     switcher.display()
+    # switcher.display_rgb()
+    # switcher.display_depth()
 
 
-    # for env in env_lists:
-    #     env_dir = os.path.join(dataset_dir, env)
-    #     item_list = os.listdir(env_dir)
-    #     for item in item_list:
-    #         scan_name = os.path.join(env_dir, item)
-    #         print("Scan_name:", scan_name)
-    #         switcher.change_video(scan_name)
-    #         switcher.display()
-    #         input("Press Enter to Continue...")
+    # pesudo_image = switcher.get_pesudo_image()
+    # pesudo_image = np.array(pesudo_image)
+    # pesudo_image = np.transpose(pesudo_image, (1, 0, 2))
+
+    # cv2.imshow('pesudo_image', pesudo_image)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+        
+
+
+

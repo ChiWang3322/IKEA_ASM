@@ -33,7 +33,7 @@ model_args:
   num_person: 1
   graph: 'graph.kinetics.Graph'
   graph_args: {'labeling_mode':'spatial'}
-  in_channels: 5
+  in_channels: 11
   custom_A: True
 
 
@@ -44,7 +44,7 @@ model_args:
 optimizer: SGD
 optimizer_args:
   SGD:
-    lr: 0.1
+    lr: 0.01
     momentum: 0.9
     nesterov: True
     weight_decay: 0.0001
@@ -69,7 +69,7 @@ scheduler_args:
     gamma: 0.6
 
 # Training
-n_epochs: 150
+n_epochs: 120
 steps_per_update: 1
 refine: False
 refine_epoch: 0

@@ -1,5 +1,5 @@
 import numpy as np
-
+from matplotlib import pyplot as plt
 class Graph():
     """ The Graph to model the skeletons extracted by the openpose
 
@@ -31,8 +31,7 @@ class Graph():
         self.dilation = dilation
 
         self.get_edge(layout)
-        self.hop_dis = get_hop_distance(
-            self.num_node, self.edge, max_hop=max_hop)
+        self.hop_dis = get_hop_distance(self.num_node, self.edge, max_hop=max_hop)
         self.get_adjacency(strategy)
 
     def __str__(self):
@@ -72,6 +71,66 @@ class Graph():
             self.center = 2
         # elif layout=='customer settings':
         #     pass
+        elif layout == 'openpose_object_hand':
+            # Object connects only to two hand joints
+            self.num_node = 24
+            self_link = [(i, i) for i in range(self.num_node)]
+            neighbor_link = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12, 11),
+                             (10, 9), (9, 8), (11, 5), (8, 2), (5, 1), (2, 1),
+                             (0, 1), (15, 0), (14, 0), (17, 15), (16, 14),
+                            (18, 4), (19, 4), (20, 4), (21, 4), (22, 4), (23, 4),
+                            (18, 7), (19, 7), (20, 7), (21, 7), (22, 7), (23, 7), ]
+            self.edge = self_link + neighbor_link
+            self.center = 1
+        ################################################################################
+        elif layout == 'KIT_object_object_hand':
+            # Join 25 points, objects 6
+            self.num_node = 31
+            self_link = [(i, i) for i in range(self.num_node)]
+            neighbor_link = [# Joint connection
+                             (16, 18), (18, 4), (4, 2), (18, 13), (4, 13), (13, 12),
+                             (22, 12), (22, 17), (17, 24),
+                             (12, 8), (8, 3), (3, 10),
+                             (12, 11), (20, 11), (11, 6),
+                             (20, 21), (21, 10),
+                             (6, 7), (7, 0),
+                             # Hand object connection
+                             (25, 24), (26, 24), (27, 24), (28, 24), (29, 24), (30, 24),
+                             (25, 10), (26, 10), (27, 10), (28, 10), (29, 10), (30, 10)
+                            ]
+            self.edge = self_link + neighbor_link
+            self.center = 1
+        ################################################################################
+        elif layout == 'openpose_object_object_hand':
+            self.num_node = 24
+            self_link = [(i, i) for i in range(self.num_node)]
+            neighbor_link = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12, 11),
+                            (10, 9), (9, 8), (11, 5), (8, 2), (5, 1), (2, 1),
+                            (0, 1), (15, 0), (14, 0), (17, 15), (16, 14),
+                            (18, 4), (19, 4), (20, 4), (21, 4), (22, 4), (23, 4),
+                            (18, 7), (19, 7), (20, 7), (21, 7), (22, 7), (23, 7), 
+                            (18, 19), (18, 20), (18, 21), (18, 22), (18, 23),
+                            (19, 20), (19, 21), (19, 22), (19, 23),
+                            (20, 21), (20, 22), (20, 23),
+                            (21, 22), (21, 23),
+                            (22, 23)]
+            self.edge = self_link + neighbor_link
+            self.center = 1
+        elif layout == 'openpose_object_joint':
+            self.num_node = 24
+            self_link = [(i, i) for i in range(self.num_node)]
+            # joint connection + object and hand connection
+            neighbor_link = [(4, 3), (3, 2), (7, 6), (6, 5), (13, 12), (12, 11),
+                            (10, 9), (9, 8), (11, 5), (8, 2), (5, 1), (2, 1),
+                            (0, 1), (15, 0), (14, 0), (17, 15), (16, 14),
+                            (18, 4), (19, 4), (20, 4), (21, 4), (22, 4), (23, 4),
+                            (18, 7), (19, 7), (20, 7), (21, 7), (22, 7), (23, 7)]
+            # Append object-joint connection
+            for obj_num in [18, 19, 20, 21, 22, 23]:
+                for joint_num in range(18):
+                    neighbor_link.append((obj_num, joint_num))
+            self.edge = self_link + neighbor_link
+            self.center = 1
         else:
             raise ValueError("Do Not Exist This Layout.")
 
@@ -163,5 +222,8 @@ def normalize_undigraph(A):
     return DAD
 
 if __name__ == '__main__':
-    g = Graph()
+    g = Graph(layout='openpose_object_object_hand')
+    print(g.A)
     print(g.A.shape)
+    plt.imshow(g.A[0])
+    plt.show()

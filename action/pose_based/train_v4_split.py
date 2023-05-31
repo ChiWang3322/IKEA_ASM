@@ -285,9 +285,9 @@ def run(args):
 
     # define the dataloaders
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, num_workers=8,
-                                                  pin_memory=True, sampler=train_sampler)
+                                                  pin_memory=True, sampler=train_sampler, shuffle=False)
     test_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, sampler=val_sampler, 
-                                                    num_workers=8,pin_memory=True)
+                                                    num_workers=8,pin_memory=True, shuffle=False)
 
 
     
@@ -345,7 +345,7 @@ def run(args):
 
     # Print model INFO
     print("\n"+"=========="*8 + "Model INFO\n")
-    print('Skeleton stream:{}\nnumber of parameters:{}M'.format(arch, round(model_total_params, 2)))
+    print('Model:{}\nnumber of parameters:{}M'.format(arch, round(model_total_params, 2)))
     print('Model args:', model_args)
     
     # train iterations
@@ -500,10 +500,9 @@ def run(args):
             loss.backward()
             # Calculate accuracy
             acc = utils.accuracy_v2(torch.argmax(per_frame_logits, dim=1), labels)
-            
+            loop.set_postfix({'train_loss': round(train_loss/(train_batchind+1), 3), 'train_acc': round(np.mean(train_acc), 3)})
             
             train_acc.append(acc.item())
-            loop.set_postfix({'train_loss': round(train_loss/(train_batchind+1), 3), 'train_acc': round(np.mean(train_acc), 3)})
             # Update weights 
             optimizer.step()
             optimizer.zero_grad()

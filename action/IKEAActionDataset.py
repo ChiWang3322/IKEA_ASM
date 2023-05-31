@@ -278,6 +278,7 @@ class IKEAActionVideoClipDataset(IKEAActionDataset):
 
             # print('length label:', np.shape(label))
             video_id = row['id']
+            label_simple = []
             annotation_table = self.get_video_annotations_table(video_id)
             for ann_row in annotation_table:
                 # print('id:',ann_row['id'])
@@ -294,12 +295,13 @@ class IKEAActionVideoClipDataset(IKEAActionDataset):
                 object_id = ann_row["object_id"]
                 action_id = self.get_action_id(atomic_action_id, object_id)
                 end_frame = ann_row['ending_frame'] if ann_row['ending_frame'] < n_frames else n_frames
+                label_simple.append((action_id, ann_row['starting_frame'], end_frame))
                 if action_id is not None:
                     label[:, ann_row['starting_frame']:end_frame] = 0  # remove the background label
                     label[action_id, ann_row['starting_frame']:end_frame] = 1
 
             vid_list.append(
-                (video_full_path, label, n_frames))  # 0 = duration - irrelevant for initial tests, used for start
+                (video_full_path, label, n_frames, label_simple))  # 0 = duration - irrelevant for initial tests, used for start
             # print('length of vid_list:', np.shape(vid_list))
         return vid_list
 
@@ -892,7 +894,7 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
                  action_object_relation_filename='action_object_relation_list.txt', train_filename='train_cross_env.txt',
                  test_filename='test_cross_env.txt', transform=None, set='test', camera='dev3', frame_skip=1, mode='img',
                  frames_per_clip=64, pose_path='predictions/pose2d/keypoint_rcnn', arch='HCN', 
-                 obj_path='seg', with_obj=True):
+                 obj_path='seg', with_obj=True, obj_dim=5):
         super().__init__(dataset_path=dataset_path, db_filename=db_filename, action_list_filename=action_list_filename,
                  action_object_relation_filename=action_object_relation_filename, train_filename=train_filename,
                          test_filename=test_filename, transform=transform, set=set, camera=camera, frame_skip=frame_skip,
@@ -901,6 +903,7 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
         self.arch = arch
         self.obj_path = obj_path
         self.with_obj = with_obj
+        self.obj_dim = obj_dim
     def load_poses(self, video_full_path, frame_ind):
         # print(video_full_path)
         pose_seq = []
@@ -943,7 +946,7 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
         sample_path = video_full_path.replace('images', self.obj_path) # ...../seg/
         c, t, v, m = pose_size
         # Here define how many object data you want
-        object_data = np.zeros([5, t, v, m])
+        object_data = np.zeros([self.obj_dim, t, v, m])
         if self.with_obj:
             # print("yes")
             for count, index in enumerate(frame_ind):
@@ -960,8 +963,30 @@ class IKEAPoseActionVideoClipDataset(IKEAActionVideoClipDataset):
 
                 for i, object_tmp in enumerate(objects): 
                     # C T V M
-                    
-                    object_data[:4, count, i , 0] = object_tmp['bbox']
+                    object_tmp = objects[i]
+                    object_2d = object_tmp['bbox']
+                    box_width = object_2d[2] 
+                    box_high = object_2d[3] 
+
+                    center_x = object_2d[0] + box_width / 2
+                    center_y = object_2d[1] + box_high / 2
+
+                    left_top_x = object_2d[0]
+                    left_top_y = object_2d[1]
+
+                    right_bottom_x = object_2d[0] + box_width
+                    right_bottom_y = object_2d[1] + box_high
+
+                    left_bottom_x = object_2d[0]
+                    left_bottom_y = object_2d[1] + box_high
+
+                    right_top_x = object_2d[0] + box_width
+                    right_top_y = object_2d[1]
+                    # (center, left_top, right_bottom, left_bottom, right_top)
+                    object_data[:2, count, i , 0] = [center_x, center_y]
+                    # object_data[:2, count, i , 0] = [center_x, center_y]
+
+                    # object_data[:4, count, i , 0] = object_tmp['bbox']
                     object_data[-1, count, i, 0] = object_tmp['category_id']
 
         else:
